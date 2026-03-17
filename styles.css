@@ -1,0 +1,203 @@
+/* This is a CSS file for your plugin */
+
+.vault-sniffer-view {
+    padding: 0;
+    overflow: hidden;
+    background: var(--background-primary);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.vault-sniffer-view .toolbar {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.vault-sniffer-view .toolbar-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.vault-sniffer-view .toolbar-btn {
+    padding: 2px 6px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    cursor: pointer;
+    font-size: 13px;
+    flex-shrink: 0;
+    line-height: 1.4;
+}
+
+.vault-sniffer-view .toolbar-btn:hover:not([disabled]) {
+    background: var(--background-modifier-hover);
+}
+
+.vault-sniffer-view .toolbar-btn[disabled] {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.vault-sniffer-view .breadcrumb {
+    display: flex;
+    gap: 2px;
+    font-size: 13px;
+    overflow: hidden;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1;
+}
+
+.vault-sniffer-view .breadcrumb-separator {
+    color: var(--text-muted);
+    margin: 0 4px;
+}
+
+.vault-sniffer-view .search-input {
+    width: 100px;
+    padding: 2px 6px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    font-size: 12px;
+    flex-shrink: 0;
+    outline: none;
+}
+
+.vault-sniffer-view .search-input:focus {
+    border-color: var(--interactive-accent);
+    width: 140px;
+}
+
+.vault-sniffer-view .nav-item {
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: background 0.2s;
+    color: var(--text-normal);
+}
+
+.vault-sniffer-view .nav-item:hover {
+    background: var(--background-modifier-hover);
+}
+
+.vault-sniffer-view .depth-control {
+    display: flex;
+    gap: 3px;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.vault-sniffer-view .depth-indicator {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.vault-sniffer-view .mode-toggle {
+    display: flex;
+    gap: 3px;
+    flex-shrink: 0;
+}
+
+.vault-sniffer-view .mode-btn {
+    padding: 2px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.vault-sniffer-view .mode-btn:hover {
+    background: var(--background-modifier-hover);
+}
+
+.vault-sniffer-view .mode-btn.active {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border-color: var(--interactive-accent);
+}
+
+.vault-sniffer-view .filter-group {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.vault-sniffer-view .filter-btn {
+    padding: 2px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.vault-sniffer-view .filter-btn:hover {
+    background: var(--background-modifier-hover);
+}
+
+.vault-sniffer-view .filter-btn.active {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border-color: var(--interactive-accent);
+}
+
+.vault-sniffer-view .treemap-chart {
+    flex: 1;
+    min-height: 0;
+    margin: 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background: var(--background-secondary);
+    overflow: hidden;
+}
+
+.vault-sniffer-view .status-bar {
+    flex-shrink: 0;
+    padding: 4px 12px;
+    font-size: 11px;
+    color: var(--text-muted);
+    border-top: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.vault-sniffer-view .tooltip {
+    position: absolute;
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 1000;
+}
+
+.vault-sniffer-view .loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
