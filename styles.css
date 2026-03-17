@@ -26,6 +26,10 @@
     flex-wrap: wrap;
 }
 
+.vault-sniffer-view .toolbar-row .breadcrumb {
+    margin-right: auto;
+}
+
 .vault-sniffer-view .toolbar-btn {
     padding: 2px 6px;
     border: 1px solid var(--background-modifier-border);
