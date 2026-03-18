@@ -52,7 +52,34 @@ export default class VaultSnifferPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		const loaded = (await this.loadData()) || {};
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+		// 迁移旧版 string[] 格式的 extraProperties
+		if (this.settings.extraProperties?.length > 0 && typeof this.settings.extraProperties[0] === 'string') {
+			this.settings.extraProperties = (this.settings.extraProperties as any[]).map((key: string) => ({
+				key, label: '', showInRect: true, showInTooltip: true
+			}));
+			// 清理旧的全局开关
+			delete (this.settings as any).showExtraPropsInRect;
+			delete (this.settings as any).showExtraPropsInTooltip;
+		}
+		// 迁移：注入内置属性（字数、体积）
+		const hasWordCount = this.settings.extraProperties.some((p: any) => p.builtin === 'wordCount');
+		const hasFileSize = this.settings.extraProperties.some((p: any) => p.builtin === 'fileSize');
+		if (!hasWordCount || !hasFileSize) {
+			if (!hasWordCount) {
+				const old: any = (loaded as any).wordCount || {};
+				this.settings.extraProperties.unshift({ key: '', label: old.label || '', showInRect: old.showInRect ?? true, showInTooltip: old.showInTooltip ?? true, builtin: 'wordCount' as const });
+			}
+			if (!hasFileSize) {
+				const old: any = (loaded as any).fileSize || {};
+				const wcIdx = this.settings.extraProperties.findIndex((p: any) => p.builtin === 'wordCount');
+				this.settings.extraProperties.splice(wcIdx + 1, 0, { key: '', label: old.label || '', showInRect: old.showInRect ?? true, showInTooltip: old.showInTooltip ?? true, builtin: 'fileSize' as const });
+			}
+			delete (this.settings as any).wordCount;
+			delete (this.settings as any).fileSize;
+			await this.saveData(this.settings);
+		}
 	}
 
 	async saveSettings() {

@@ -2,7 +2,7 @@
 import { ItemView, WorkspaceLeaf, TFile } from 'obsidian';
 import * as d3 from 'd3';
 import { FileManager, FileNode } from './fileManager';
-import type { VaultSnifferSettings, DisplayMode } from './settings';
+import type { VaultSnifferSettings, DisplayMode, ExtraProperty } from './settings';
 
 const VIEW_TYPE = 'vault-sniffer-view';
 
@@ -10,7 +10,7 @@ export class VaultSnifferView extends ItemView {
 	private fileManager: FileManager;
 	private settings: VaultSnifferSettings;
 	private currentPath = '/';
-	private currentFilter: string[] = [];
+	private currentFilterMode: 'all' | 'notes' | 'attachments' = 'all';
 	private currentDepth = 1;
 	private maxDepth = 1;
 	displayMode: DisplayMode = 'count';
@@ -83,24 +83,20 @@ export class VaultSnifferView extends ItemView {
 		const toolbar = this.viewContainer!.createDiv('toolbar');
 		this.viewContainer!.prepend(toolbar);
 
-		// 第一行：导航
+		// ── 第一行：路径(左) + 搜索 + 刷新(右) ──
 		const row1 = toolbar.createDiv('toolbar-row');
 
-		const breadcrumb = row1.createDiv('breadcrumb');
-		this.updateBreadcrumb(breadcrumb);
-
+		const pathGroup = row1.createDiv('toolbar-left');
 		if (this.currentPath !== '/') {
-			const upBtn = row1.createEl('button', { cls: 'toolbar-btn', attr: { title: '返回上级' } });
+			const upBtn = pathGroup.createEl('button', { cls: 'toolbar-btn', attr: { title: '返回上级' } });
 			upBtn.textContent = '⬆️';
 			upBtn.addEventListener('click', () => this.navigateUp());
 		}
+		const breadcrumb = pathGroup.createDiv('breadcrumb');
+		this.updateBreadcrumb(breadcrumb);
 
-		const refreshBtn = row1.createEl('button', { cls: 'toolbar-btn', attr: { title: '刷新' } });
-		refreshBtn.textContent = '🔄';
-		refreshBtn.addEventListener('click', () => this.refresh());
-
-		// 过滤框
-		const searchInput = row1.createEl('input', {
+		const rightGroup = row1.createDiv('toolbar-right');
+		const searchInput = rightGroup.createEl('input', {
 			cls: 'search-input',
 			attr: { type: 'text', placeholder: '🔍 过滤...', spellcheck: 'false' }
 		});
@@ -109,9 +105,12 @@ export class VaultSnifferView extends ItemView {
 			this.searchQuery = (e.target as HTMLInputElement).value.toLowerCase();
 			this.applySearchHighlight();
 		});
+		const refreshBtn = rightGroup.createEl('button', { cls: 'toolbar-btn', attr: { title: '刷新' } });
+		refreshBtn.textContent = '🔄';
+		refreshBtn.addEventListener('click', () => this.refresh());
 
-		// 第二行：所有控制
-		const row2 = toolbar.createDiv('toolbar-row');
+		// ── 第二行：深度 | 统计方式 | 显示内容 ──
+		const row2 = toolbar.createDiv('toolbar-row toolbar-row-spread');
 
 		// 深度
 		const depthControl = row2.createDiv('depth-control');
@@ -128,7 +127,7 @@ export class VaultSnifferView extends ItemView {
 			else if (action === 'shallow') this.changeDepth(-1);
 		});
 
-		// 模式
+		// 统计方式
 		const modeToggle = row2.createDiv('mode-toggle');
 		modeToggle.innerHTML = `
 			<button class="mode-btn${this.displayMode === 'size' ? ' active' : ''}" data-mode="size">📦 按大小</button>
@@ -139,12 +138,11 @@ export class VaultSnifferView extends ItemView {
 			if (target.classList.contains('mode-btn')) this.changeMode(target.dataset.mode as DisplayMode);
 		});
 
-		// 过滤
+		// 显示内容
 		const filterGroup = row2.createDiv('filter-group');
-		filterGroup.createEl('button', { text: '全部', cls: 'filter-btn active' });
-		filterGroup.createEl('button', { text: '📝 .md', cls: 'filter-btn' });
-		filterGroup.createEl('button', { text: '🖼️ 图片', cls: 'filter-btn' });
-		filterGroup.createEl('button', { text: '📄 PDF', cls: 'filter-btn' });
+		filterGroup.createEl('button', { text: '全部', cls: `filter-btn${this.currentFilterMode === 'all' ? ' active' : ''}`, attr: { 'data-filter': 'all' } });
+		filterGroup.createEl('button', { text: '📝 笔记', cls: `filter-btn${this.currentFilterMode === 'notes' ? ' active' : ''}`, attr: { 'data-filter': 'notes' } });
+		filterGroup.createEl('button', { text: '📎 附件', cls: `filter-btn${this.currentFilterMode === 'attachments' ? ' active' : ''}`, attr: { 'data-filter': 'attachments' } });
 		filterGroup.addEventListener('click', (e) => {
 			const target = e.target as HTMLElement;
 			if (target.classList.contains('filter-btn')) this.applyFilter(target);
@@ -157,24 +155,7 @@ export class VaultSnifferView extends ItemView {
 		await this.renderChart();
 	}
 
-	private markVisibleDepth(node: FileNode, relativeDepth: number = 0) {
-		if (!node) return;
-		if (relativeDepth === this.currentDepth) {
-			node.visibleDepth = this.currentDepth;
-		} else {
-			if (node.visibleDepth) delete node.visibleDepth;
-		}
-
-		if (node.children) {
-			node.children.forEach(child => {
-				this.markVisibleDepth(child, relativeDepth + 1);
-			});
-		}
-	}
-
 	private async renderChart() {
-		if (!this.viewContainer) return;
-
 		this.showLoading();
 		this.isLoading = true;
 
@@ -185,15 +166,18 @@ export class VaultSnifferView extends ItemView {
 
 			if (!data) return;
 
-			if (this.currentFilter.length > 0) {
-				data = this.fileManager.filterByExtension(data, this.currentFilter);
+			// 应用内容过滤
+			if (this.currentFilterMode === 'notes') {
+				data = this.fileManager.filterByExtension(data, ['md']);
+				if (!data) return;
+			} else if (this.currentFilterMode === 'attachments') {
+				data = this.fileManager.filterByNotExtension(data, ['md']);
 				if (!data) return;
 			}
 
+			// 应用深度过滤
 			data = this.fileManager.filterByDepth(data, data.depth + this.currentDepth);
 			if (!data) return;
-
-			this.markVisibleDepth(data, 0);
 
 			this.renderChartWithData(data);
 		} finally {
@@ -230,10 +214,36 @@ export class VaultSnifferView extends ItemView {
 		return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
 	}
 
+	private formatWordCount(count: number): string {
+		if (count >= 10000) return (count / 10000).toFixed(1).replace(/\.0$/, '') + ' 万字';
+		if (count >= 1000) return (count / 1000).toFixed(1).replace(/\.0$/, '') + ' 千字';
+		return count + ' 字';
+	}
+
 	private truncateText(text: string, maxWidth: number): string {
 		const avgCharWidth = 7;
 		const maxChars = Math.floor(maxWidth / avgCharWidth);
 		return text.length > maxChars ? text.substring(0, maxChars - 2) + '...' : text;
+	}
+
+	private escapeHtml(text: string): string {
+		return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+	}
+
+	private formatPropValue(val: string): string {
+		if (!this.settings.dateFormat) return val;
+		// 只尝试解析看起来像日期的字符串
+		if (!/^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(val)) return val;
+		const d = new Date(val);
+		if (isNaN(d.getTime())) return val;
+		const pad = (n: number) => n < 10 ? '0' + n : String(n);
+		return this.settings.dateFormat
+			.replace('YYYY', String(d.getFullYear()))
+			.replace('MM', pad(d.getMonth() + 1))
+			.replace('DD', pad(d.getDate()))
+			.replace('HH', pad(d.getHours()))
+			.replace('mm', pad(d.getMinutes()))
+			.replace('ss', pad(d.getSeconds()));
 	}
 
 	private updateBreadcrumb(breadcrumb: HTMLElement) {
@@ -275,20 +285,44 @@ export class VaultSnifferView extends ItemView {
 	}
 
 	private async navigateTo(path: string) {
-		this.currentPath = path;
-		this.currentDepth = 1; // 重置深度
-		this.maxDepth = 1;
+		if (this.isLoading) return;
+		this.isLoading = true;
+		this.showLoading();
 
-		// 先清除旧图表
-		const oldChart = this.viewContainer?.querySelector('.treemap-chart');
-		if (oldChart) oldChart.remove();
+		try {
+			// 先获取数据，避免 DOM 空窗期导致闪烁
+			const newPath = path;
+			let data = newPath === '/'
+				? await this.fileManager.getVaultStructure()
+				: await this.fileManager.getFolderAtPath(newPath);
 
-		// 重建工具栏：移除旧的，在容器开头插入新的
-		const oldToolbar = this.viewContainer?.querySelector('.toolbar');
-		if (oldToolbar) oldToolbar.remove();
-		this.renderToolbar();
+			if (!data) return;
 
-		await this.renderChart();
+			if (this.currentFilterMode === 'notes') {
+				data = this.fileManager.filterByExtension(data, ['md']);
+				if (!data) return;
+			} else if (this.currentFilterMode === 'attachments') {
+				data = this.fileManager.filterByNotExtension(data, ['md']);
+				if (!data) return;
+			}
+
+			data = this.fileManager.filterByDepth(data, data.depth + 1);
+			if (!data) return;
+
+			// 数据就绪，一次性更新状态和 DOM
+			this.currentPath = newPath;
+			this.currentDepth = 1;
+			this.maxDepth = 1;
+
+			const oldToolbar = this.viewContainer?.querySelector('.toolbar');
+			if (oldToolbar) oldToolbar.remove();
+			this.renderToolbar();
+
+			this.renderChartWithData(data);
+		} finally {
+			this.hideLoading();
+			this.isLoading = false;
+		}
 	}
 
 	private renderChartWithData(data: any) {
@@ -320,24 +354,8 @@ export class VaultSnifferView extends ItemView {
 
 		if (width <= 0 || height <= 0) return;
 
-		// 将 visible depth 节点变成叶节点，使 treemap 能正确布局
-		const prepareForTreemap = (node: any): any => {
-			if (node.visibleDepth === this.currentDepth) {
-				return { ...node, children: undefined };
-			}
-			if (node.children) {
-				const children = node.children
-					.map((c: any) => prepareForTreemap(c))
-					.filter(Boolean);
-				return { ...node, children: children.length > 0 ? children : undefined };
-			}
-			return { ...node };
-		};
-
-		const treemapData = prepareForTreemap(data);
-
-		// 为 D3 创建数据
-		const hierarchy = d3.hierarchy(treemapData)
+		// 为 D3 创建数据（filterByDepth 已将目标深度节点变为叶节点）
+		const hierarchy = d3.hierarchy(data)
 			.sum((d: any) => (!d.children || d.children.length === 0)
 				? (this.displayMode === 'size' ? d.size : d.count)
 				: 0)
@@ -392,6 +410,7 @@ export class VaultSnifferView extends ItemView {
 			});
 
 		// 添加文本标签
+		const extraProps = (this.settings.extraProperties || []).filter(p => p.builtin || p.key);
 		cells.each((d: any, i: number, nodes: any[]) => {
 			const g = d3.select(nodes[i]);
 			const rectWidth = d.x1 - d.x0;
@@ -400,30 +419,48 @@ export class VaultSnifferView extends ItemView {
 
 			if (rectWidth < 40 || rectHeight < 18) return;
 
+			let yOffset = 14;
+			const lineHeight = 13;
+
 			// 名称（优先使用 title 属性）
 			const displayName = d.data.displayName || d.data.name;
 			g.append('text')
-				.attr('x', 4).attr('y', 14)
+				.attr('x', 4).attr('y', yOffset)
 				.text(this.truncateText(displayName, rectWidth - 8))
 				.style('font-size', '11px')
 				.style('fill', fill)
 				.style('pointer-events', 'none');
+			yOffset += lineHeight;
 
-			// 大小
-			if (rectHeight > 34 && rectWidth > 50) {
+			// 显示属性（按 extraProperties 顺序，含内置字数/体积）
+			for (const prop of extraProps) {
+				if (!prop.showInRect) continue;
+				if (yOffset + 2 > rectHeight || rectWidth < 50) break;
+				let text: string | null = null;
+				if (prop.builtin === 'wordCount') {
+					if (d.data.wordCount != null) text = this.formatWordCount(d.data.wordCount);
+				} else if (prop.builtin === 'fileSize') {
+					text = this.formatSize(d.data.size);
+				} else if (d.data.type === 'file' && d.data.extraProps) {
+					const val = d.data.extraProps[prop.key];
+					if (val) text = this.formatPropValue(val);
+				}
+				if (text == null) continue;
+				const prefix = prop.label || '';
 				g.append('text')
-					.attr('x', 4).attr('y', 28)
-					.text(this.formatSize(d.data.size))
+					.attr('x', 4).attr('y', yOffset)
+					.text(this.truncateText(prefix + text, rectWidth - 8))
 					.style('font-size', '10px')
 					.style('fill', fill)
-					.style('opacity', '0.75')
+					.style('opacity', '0.7')
 					.style('pointer-events', 'none');
+				yOffset += lineHeight;
 			}
 
 			// 文件数量（仅文件夹）
-			if (rectHeight > 48 && rectWidth > 50 && d.data.type === 'folder') {
+			if (yOffset + 2 <= rectHeight && rectWidth > 50 && d.data.type === 'folder') {
 				g.append('text')
-					.attr('x', 4).attr('y', 42)
+					.attr('x', 4).attr('y', yOffset)
 					.text(`${d.data.count} 个文件`)
 					.style('font-size', '10px')
 					.style('fill', fill)
@@ -450,11 +487,29 @@ export class VaultSnifferView extends ItemView {
 			})
 			.on('mousemove', (event: any, d: any) => {
 				const icon = d.data.type === 'folder' ? '📁' : '📄';
-				const displayName = d.data.displayName || d.data.name;
+				const tooltipName = this.settings.useTitleInTooltip
+					? (d.data.displayName || d.data.name)
+					: d.data.name;
 				const size = this.formatSize(d.data.size);
-				const extra = d.data.type === 'folder' ? ` · ${d.data.count} 个文件` : '';
+				const folderExtra = d.data.type === 'folder' ? `<br/>${d.data.count} 个文件` : '';
+				// 统一遍历显示属性（内置字数/体积 + 自定义属性）
+				const infoTokens: string[] = [];
+				let propsHtml = '';
+				for (const prop of extraProps) {
+					if (!prop.showInTooltip) continue;
+					const prefix = prop.label || '';
+					if (prop.builtin === 'wordCount') {
+						if (d.data.wordCount != null) infoTokens.push(prefix + this.formatWordCount(d.data.wordCount));
+					} else if (prop.builtin === 'fileSize') {
+						infoTokens.push(prefix + size);
+					} else if (d.data.type === 'file' && d.data.extraProps) {
+						const val = d.data.extraProps[prop.key];
+						if (val) propsHtml += `<br/><span style="opacity:0.75">${this.escapeHtml(prop.key)}: ${this.escapeHtml(String(val))}</span>`;
+					}
+				}
+				const infoLine = infoTokens.join(' · ');
 				this.tooltip
-					.html(`${icon} <strong>${displayName}</strong><br/>${size}${extra}`)
+					.html(`${icon} <strong>${this.escapeHtml(tooltipName)}</strong>${infoLine ? '<br/>' + infoLine : ''}${folderExtra}${propsHtml}`)
 					.style('left', (event.pageX + 10) + 'px')
 					.style('top', (event.pageY + 10) + 'px');
 			})
@@ -514,23 +569,12 @@ export class VaultSnifferView extends ItemView {
 	}
 
 	private applyFilter(btn: HTMLElement) {
-		// 更新按钮状态
 		const buttons = btn.parentElement!.querySelectorAll('.filter-btn');
 		buttons.forEach(b => b.classList.remove('active'));
 		btn.classList.add('active');
 
-		const filterText = btn.textContent!;
-
-		if (filterText === '全部') {
-			this.currentFilter = [];
-		} else if (filterText.includes('.md')) {
-			this.currentFilter = ['md'];
-		} else if (filterText.includes('图片')) {
-			this.currentFilter = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'];
-		} else if (filterText.includes('PDF')) {
-			this.currentFilter = ['pdf'];
-		}
-
+		const mode = btn.dataset.filter as 'all' | 'notes' | 'attachments';
+		this.currentFilterMode = mode || 'all';
 		this.renderChart();
 	}
 
@@ -546,13 +590,11 @@ export class VaultSnifferView extends ItemView {
 			top: 0;
 			left: 0;
 			right: 0;
-			bottom: 0;
-			background: rgba(0, 0, 0, 0.5);
+			background: transparent;
 			display: flex;
-			flex-direction: column;
-			align-items: center;
 			justify-content: center;
 			z-index: 1000;
+			pointer-events: none;
 		`;
 
 		const bar = document.createElement('div');

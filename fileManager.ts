@@ -4,9 +4,11 @@ import type { VaultSnifferSettings } from './settings';
 export interface FileNode {
 	name: string;
 	displayName?: string;
+	extraProps?: Record<string, string>;
 	path: string;
 	size: number;
 	count: number;
+	wordCount?: number;
 	type: 'file' | 'folder';
 	extension?: string;
 	children?: FileNode[];
@@ -99,12 +101,16 @@ export class FileManager {
 			if (child instanceof TFile) {
 				if (this.shouldIgnore(child.name, child.path, false, child.extension)) return null;
 				const displayName = this.getDisplayName(child);
+				const extraProps = this.getExtraProps(child);
+				const wordCount = await this.getWordCount(child);
 				return {
 					name: child.name,
 					displayName,
+					extraProps,
 					path: child.path,
 					size: await this.getFileSize(child),
 					count: 1,
+					wordCount,
 					type: 'file' as const,
 					extension: child.extension,
 					depth: node.depth + 1
@@ -137,11 +143,44 @@ export class FileManager {
 		return path.split('/').filter(p => p).length;
 	}
 
+	private readonly TEXT_EXTENSIONS = ['md', 'txt', 'csv', 'json', 'yaml', 'yml', 'xml', 'html', 'css', 'js', 'ts'];
+
+	private async getWordCount(file: TFile): Promise<number | undefined> {
+		if (!this.TEXT_EXTENSIONS.includes(file.extension)) return undefined;
+		try {
+			const content = await this.app.vault.cachedRead(file);
+			// 统计中文字符 + 英文单词
+			const chineseChars = (content.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length;
+			const englishWords = content.replace(/[\u4e00-\u9fff\u3400-\u4dbf]/g, ' ')
+				.split(/\s+/).filter(w => w.length > 0).length;
+			return chineseChars + englishWords;
+		} catch {
+			return undefined;
+		}
+	}
+
 	private getDisplayName(file: TFile): string | undefined {
 		if (!this.settings?.titleProperty) return undefined;
 		const cache: CachedMetadata | null = this.app.metadataCache.getFileCache(file);
 		const title = cache?.frontmatter?.[this.settings.titleProperty];
 		return typeof title === 'string' && title.length > 0 ? title : undefined;
+	}
+
+	private getExtraProps(file: TFile): Record<string, string> | undefined {
+		if (!this.settings?.extraProperties?.length) return undefined;
+		const cache: CachedMetadata | null = this.app.metadataCache.getFileCache(file);
+		if (!cache?.frontmatter) return undefined;
+		const result: Record<string, string> = {};
+		let hasAny = false;
+		for (const prop of this.settings.extraProperties) {
+			if (!prop.key) continue;
+			const val = cache.frontmatter[prop.key];
+			if (val != null) {
+				result[prop.key] = String(val);
+				hasAny = true;
+			}
+		}
+		return hasAny ? result : undefined;
 	}
 
 	// 过滤功能
@@ -172,20 +211,43 @@ export class FileManager {
 	// 按深度过滤，只显示到指定深度的节点
 	filterByDepth(node: FileNode, targetDepth: number): FileNode | null {
 		if (node.depth > targetDepth) {
-			// 超过目标深度，不包含
 			return null;
 		}
 
 		if (node.depth === targetDepth) {
-			// 到达目标深度，保留节点和所有子节点（用于计算size/count）
-			// 注意：这里不清除 children，因为需要递归计算总和
-			return { ...node };
+			// 到达目标深度，去掉 children 使其成为叶节点（保留聚合的 size/count）
+			return { ...node, children: undefined };
 		}
 
 		// 未到达目标深度，继续递归
 		const filteredChildren = (node.children || [])
 			.map(child => this.filterByDepth(child, targetDepth))
 			.filter((child): child is FileNode => child !== null);
+
+		return {
+			...node,
+			children: filteredChildren,
+			size: filteredChildren.reduce((sum, child) => sum + child.size, 0),
+			count: filteredChildren.reduce((sum, child) => sum + child.count, 0)
+		};
+	}
+
+	// 过滤掉指定扩展名的文件（反向过滤）
+	filterByNotExtension(node: FileNode, excludeExtensions: string[]): FileNode | null {
+		if (node.type === 'file') {
+			if (node.extension && excludeExtensions.includes(node.extension)) {
+				return null;
+			}
+			return { ...node };
+		}
+
+		const filteredChildren = (node.children || [])
+			.map(child => this.filterByNotExtension(child, excludeExtensions))
+			.filter((child): child is FileNode => child !== null);
+
+		if (filteredChildren.length === 0) {
+			return null;
+		}
 
 		return {
 			...node,
