@@ -1,8 +1,18 @@
-import { App, PluginSettingTab, Setting } from 'obsidian';
+import { App, PluginSettingTab, Setting, setIcon } from 'obsidian';
 import type VaultSnifferPlugin from './main';
+import { t } from './i18n';
 
 export type OpenLocation = 'tab' | 'split' | 'window';
 export type DisplayMode = 'size' | 'count';
+export type FileSortRule = 'default' | 'name-asc' | 'name-desc' | 'ctime-desc' | 'ctime-asc' | 'mtime-desc' | 'mtime-asc' | 'size-desc' | 'size-asc';
+
+export interface ExtraProperty {
+	key: string;
+	label: string;
+	showInRect: boolean;
+	showInTooltip: boolean;
+	builtin?: 'wordCount' | 'fileSize' | 'folder';
+}
 
 export interface VaultSnifferSettings {
 	ignoreFolders: string[];
@@ -13,6 +23,12 @@ export interface VaultSnifferSettings {
 	openLocation: OpenLocation;
 	defaultMode: DisplayMode;
 	titleProperty: string;
+	useTitleInTooltip: boolean;
+	extraProperties: ExtraProperty[];
+	dateFormat: string;
+	fileSortRule: FileSortRule;
+	ctimeProperty: string;
+	mtimeProperty: string;
 }
 
 export const DEFAULT_SETTINGS: VaultSnifferSettings = {
@@ -24,10 +40,21 @@ export const DEFAULT_SETTINGS: VaultSnifferSettings = {
 	openLocation: 'tab',
 	defaultMode: 'count',
 	titleProperty: 'title',
+	useTitleInTooltip: false,
+	extraProperties: [
+		{ key: '', label: '', showInRect: true, showInTooltip: true, builtin: 'wordCount' as const },
+		{ key: '', label: '', showInRect: true, showInTooltip: true, builtin: 'fileSize' as const },
+		{ key: '', label: '', showInRect: true, showInTooltip: true, builtin: 'folder' as const },
+	],
+	dateFormat: 'YYYY-MM-DD',
+	fileSortRule: 'default',
+	ctimeProperty: '',
+	mtimeProperty: '',
 };
 
 export class VaultSnifferSettingTab extends PluginSettingTab {
 	plugin: VaultSnifferPlugin;
+	icon = 'layout-grid';
 
 	constructor(app: App, plugin: VaultSnifferPlugin) {
 		super(app, plugin);
@@ -38,10 +65,15 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		// ── 忽略文件夹 ──
-		new Setting(containerEl)
-			.setName('忽略文件夹')
-			.setDesc('输入要忽略的文件夹名称，每行一个。匹配任意层级中同名的文件夹。')
+		// ════════════════════════════════
+		// 忽略规则
+		// ════════════════════════════════
+		const ignoreGroup = containerEl.createDiv('setting-group');
+		ignoreGroup.createEl('h3', { text: t('ignoreRules'), cls: 'setting-group-title' });
+
+		new Setting(ignoreGroup)
+			.setName(t('ignoreFolders'))
+			.setDesc(t('ignoreFoldersDesc'))
 			.addTextArea(text => {
 				text.setPlaceholder('Assets\nassets\nnode_modules')
 					.setValue(this.plugin.settings.ignoreFolders.join('\n'))
@@ -56,10 +88,9 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 				text.inputEl.cols = 30;
 			});
 
-		// ── 忽略扩展名 ──
-		new Setting(containerEl)
-			.setName('忽略文件类型')
-			.setDesc('输入要忽略的文件扩展名（不含点），每行一个。例如：tmp、log')
+		new Setting(ignoreGroup)
+			.setName(t('ignoreExtensions'))
+			.setDesc(t('ignoreExtensionsDesc'))
 			.addTextArea(text => {
 				text.setPlaceholder('tmp\nlog\nbak')
 					.setValue(this.plugin.settings.ignoreExtensions.join('\n'))
@@ -74,10 +105,9 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 				text.inputEl.cols = 30;
 			});
 
-		// ── 忽略模式 ──
-		new Setting(containerEl)
-			.setName('忽略路径模式')
-			.setDesc('输入要忽略的路径关键词，每行一个。路径中包含该关键词的文件/文件夹会被忽略。')
+		new Setting(ignoreGroup)
+			.setName(t('ignorePatterns'))
+			.setDesc(t('ignorePatternsDesc'))
 			.addTextArea(text => {
 				text.setPlaceholder('backup\narchive')
 					.setValue(this.plugin.settings.ignorePatterns.join('\n'))
@@ -92,10 +122,9 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 				text.inputEl.cols = 30;
 			});
 
-		// ── 隐藏文件 ──
-		new Setting(containerEl)
-			.setName('忽略隐藏文件')
-			.setDesc('忽略以 . 开头的文件和文件夹（如 .obsidian、.git）')
+		new Setting(ignoreGroup)
+			.setName(t('ignoreHidden'))
+			.setDesc(t('ignoreHiddenDesc'))
 			.addToggle(toggle => {
 				toggle.setValue(this.plugin.settings.ignoreHidden)
 					.onChange(async (value) => {
@@ -104,24 +133,20 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 					});
 			});
 
-		// ── 默认计数规则 ──
-		new Setting(containerEl)
-			.setName('默认计数规则')
-			.setDesc('打开视图时默认的显示模式')
-			.addDropdown(drop => {
-				drop.addOption('size', '按大小')
-					.addOption('count', '按数量')
-					.setValue(this.plugin.settings.defaultMode)
-					.onChange(async (value) => {
-						this.plugin.settings.defaultMode = value as 'size' | 'count';
-						await this.plugin.saveSettings();
-					});
-			});
+		ignoreGroup.createEl('p', {
+			text: t('ignoreNote'),
+			cls: 'setting-item-description',
+		});
 
-		// ── 标题属性 ──
-		new Setting(containerEl)
-			.setName('显示名称属性')
-			.setDesc('读取 frontmatter 中的此属性作为显示名称，未设置时回退到文件名。留空则始终使用文件名。')
+		// ════════════════════════════════
+		// 属性配置
+		// ════════════════════════════════
+		const propGroup = containerEl.createDiv('setting-group');
+		propGroup.createEl('h3', { text: t('propertyConfig'), cls: 'setting-group-title' });
+
+		new Setting(propGroup)
+			.setName(t('titleProperty'))
+			.setDesc(t('titlePropertyDesc'))
 			.addText(text => {
 				text.setPlaceholder('title')
 					.setValue(this.plugin.settings.titleProperty)
@@ -131,27 +156,265 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 					});
 			});
 
-		// ── 点击打开文件 ──
-		const clickSetting = new Setting(containerEl)
-			.setName('点击打开文件')
-			.setDesc('点击文件矩形时打开对应文件')
+		new Setting(propGroup)
+			.setName(t('useTitleInTooltip'))
+			.setDesc(t('useTitleInTooltipDesc'))
+			.addToggle(toggle => {
+				toggle.setValue(this.plugin.settings.useTitleInTooltip)
+					.onChange(async (value) => {
+						this.plugin.settings.useTitleInTooltip = value;
+						await this.plugin.saveSettings();
+					});
+			});
+
+		// ── 显示属性列表 ──────────────────────────────
+		const extraSetting = new Setting(propGroup)
+			.setName(t('displayProperties'))
+			.setDesc(t('displayPropertiesDesc'))
+			.addButton(btn => {
+				btn.setButtonText(t('addProperty'))
+					.setCta()
+					.onClick(async () => {
+						this.plugin.settings.extraProperties.push({ key: '', label: '', showInRect: true, showInTooltip: true });
+						await this.plugin.saveSettings();
+						this.display();
+					});
+			});
+
+		const listContainer = propGroup.createDiv('extra-props-list');
+
+		// 列标题行
+		const headerRow = listContainer.createDiv('extra-prop-header');
+		headerRow.createDiv('extra-prop-header-spacer'); // 对齐手柄/锁
+		headerRow.createEl('span', { text: t('colProperty'), cls: 'extra-prop-header-key' });
+		headerRow.createEl('span', { text: t('colPrefix'), cls: 'extra-prop-header-label' });
+		headerRow.createDiv({ cls: 'extra-prop-spacer' });
+		const rectHeader = headerRow.createDiv('extra-prop-header-icon');
+		setIcon(rectHeader, 'layout-grid');
+		rectHeader.setAttribute('title', t('showInRect'));
+		const tipHeader = headerRow.createDiv('extra-prop-header-icon');
+		setIcon(tipHeader, 'message-square');
+		tipHeader.setAttribute('title', t('showInTooltip'));
+		headerRow.createDiv('extra-prop-header-delete'); // 占位
+
+		// 统一属性列表（内置 + 自定义，均可拖动排序）
+		this.plugin.settings.extraProperties.forEach((prop, index) => {
+			const item = listContainer.createDiv('extra-prop-item');
+			item.setAttribute('draggable', 'true');
+			item.dataset.index = String(index);
+
+			// 拖拽手柄
+			const handle = item.createSpan('extra-prop-handle');
+			handle.textContent = '⠿';
+
+			// 属性名：内置显示固定文本，自定义可编辑
+			if (prop.builtin) {
+				const builtinNames: Record<string, string> = {
+					wordCount: t('builtinWordCount'),
+					fileSize: t('builtinFileSize'),
+					folder: t('builtinFolder'),
+				};
+				item.createEl('span', {
+					text: builtinNames[prop.builtin] || prop.builtin,
+					cls: 'extra-prop-name-fixed extra-prop-key'
+				});
+			} else {
+				const keyInput = item.createEl('input', {
+					cls: 'extra-prop-input extra-prop-key',
+					attr: { type: 'text', placeholder: t('placeholderKey'), spellcheck: 'false' }
+				});
+				keyInput.value = prop.key;
+				keyInput.addEventListener('change', async (e) => {
+					this.plugin.settings.extraProperties[index].key = (e.target as HTMLInputElement).value.trim();
+					await this.plugin.saveSettings();
+				});
+			}
+
+			// 显示前缀
+			const labelInput = item.createEl('input', {
+				cls: 'extra-prop-input extra-prop-label',
+				attr: { type: 'text', placeholder: t('placeholderPrefix'), spellcheck: 'false' }
+			});
+			labelInput.value = prop.label;
+			labelInput.addEventListener('change', async (e) => {
+				this.plugin.settings.extraProperties[index].label = (e.target as HTMLInputElement).value.trim();
+				await this.plugin.saveSettings();
+			});
+
+			item.createDiv('extra-prop-spacer');
+
+			// 矩形显示开关
+			const rectToggle = item.createEl('button', {
+				cls: `extra-prop-toggle ${prop.showInRect ? 'active' : ''}`,
+				attr: { title: t('showInRect') }
+			});
+			setIcon(rectToggle, 'layout-grid');
+			rectToggle.addEventListener('click', async () => {
+				this.plugin.settings.extraProperties[index].showInRect = !this.plugin.settings.extraProperties[index].showInRect;
+				await this.plugin.saveSettings();
+				rectToggle.toggleClass('active', this.plugin.settings.extraProperties[index].showInRect);
+			});
+
+			// tooltip 显示开关
+			const tipToggle = item.createEl('button', {
+				cls: `extra-prop-toggle ${prop.showInTooltip ? 'active' : ''}`,
+				attr: { title: t('showInTooltip') }
+			});
+			setIcon(tipToggle, 'message-square');
+			tipToggle.addEventListener('click', async () => {
+				this.plugin.settings.extraProperties[index].showInTooltip = !this.plugin.settings.extraProperties[index].showInTooltip;
+				await this.plugin.saveSettings();
+				tipToggle.toggleClass('active', this.plugin.settings.extraProperties[index].showInTooltip);
+			});
+
+			// 删除按钮（内置属性无删除）
+			if (!prop.builtin) {
+				const removeBtn = item.createEl('button', { cls: 'extra-prop-remove', attr: { title: t('deleteProperty') } });
+				setIcon(removeBtn, 'trash-2');
+				removeBtn.addEventListener('click', async () => {
+					this.plugin.settings.extraProperties.splice(index, 1);
+					await this.plugin.saveSettings();
+					this.display();
+				});
+			} else {
+				item.createDiv('extra-prop-delete-placeholder');
+			}
+
+			// 拖放事件（所有属性均可排序）
+			item.addEventListener('dragstart', (e) => {
+				e.dataTransfer!.effectAllowed = 'move';
+				e.dataTransfer!.setData('text/plain', String(index));
+				item.addClass('dragging');
+			});
+			item.addEventListener('dragend', () => {
+				item.removeClass('dragging');
+			});
+			item.addEventListener('dragover', (e) => {
+				e.preventDefault();
+				e.dataTransfer!.dropEffect = 'move';
+				item.addClass('drag-over');
+			});
+			item.addEventListener('dragleave', () => {
+				item.removeClass('drag-over');
+			});
+			item.addEventListener('drop', async (e) => {
+				e.preventDefault();
+				item.removeClass('drag-over');
+				const fromIndex = parseInt(e.dataTransfer!.getData('text/plain'), 10);
+				const toIndex = index;
+				if (fromIndex === toIndex) return;
+				const arr = this.plugin.settings.extraProperties;
+				const [moved] = arr.splice(fromIndex, 1);
+				arr.splice(toIndex, 0, moved);
+				await this.plugin.saveSettings();
+				this.display();
+			});
+		});
+
+		new Setting(propGroup)
+			.setName(t('dateFormat'))
+			.setDesc(t('dateFormatDesc'))
+			.addText(text => {
+				text.setPlaceholder('YYYY-MM-DD')
+					.setValue(this.plugin.settings.dateFormat)
+					.onChange(async (value) => {
+						this.plugin.settings.dateFormat = value.trim();
+						await this.plugin.saveSettings();
+					});
+			});
+
+		// ════════════════════════════════
+		// 排序
+		// ════════════════════════════════
+		const sortGroup = containerEl.createDiv('setting-group');
+		sortGroup.createEl('h3', { text: t('sortGroup'), cls: 'setting-group-title' });
+
+		new Setting(sortGroup)
+			.setName(t('fileSortRule'))
+			.setDesc(t('fileSortRuleDesc'))
+			.addDropdown(drop => {
+				drop.addOption('default', t('sortDefault'))
+					.addOption('name-asc', t('sortNameAsc'))
+					.addOption('name-desc', t('sortNameDesc'))
+					.addOption('ctime-desc', t('sortCtimeDesc'))
+					.addOption('ctime-asc', t('sortCtimeAsc'))
+					.addOption('mtime-desc', t('sortMtimeDesc'))
+					.addOption('mtime-asc', t('sortMtimeAsc'))
+					.addOption('size-desc', t('sortSizeDesc'))
+					.addOption('size-asc', t('sortSizeAsc'))
+					.setValue(this.plugin.settings.fileSortRule)
+					.onChange(async (value) => {
+						this.plugin.settings.fileSortRule = value as FileSortRule;
+						await this.plugin.saveSettings();
+						this.display();
+					});
+			});
+
+		if (this.plugin.settings.fileSortRule.startsWith('ctime') || this.plugin.settings.fileSortRule.startsWith('mtime')) {
+			new Setting(sortGroup)
+				.setName(t('ctimeProperty'))
+				.setDesc(t('ctimePropertyDesc'))
+				.addText(text => {
+					text.setPlaceholder('created_at')
+						.setValue(this.plugin.settings.ctimeProperty)
+						.onChange(async (value) => {
+							this.plugin.settings.ctimeProperty = value.trim();
+							await this.plugin.saveSettings();
+						});
+				});
+
+			new Setting(sortGroup)
+				.setName(t('mtimeProperty'))
+				.setDesc(t('mtimePropertyDesc'))
+				.addText(text => {
+					text.setPlaceholder('modified_at')
+						.setValue(this.plugin.settings.mtimeProperty)
+						.onChange(async (value) => {
+							this.plugin.settings.mtimeProperty = value.trim();
+							await this.plugin.saveSettings();
+						});
+				});
+		}
+
+		// ════════════════════════════════
+		// 交互行为
+		// ════════════════════════════════
+		const behaviorGroup = containerEl.createDiv('setting-group');
+		behaviorGroup.createEl('h3', { text: t('behavior'), cls: 'setting-group-title' });
+
+		new Setting(behaviorGroup)
+			.setName(t('defaultMode'))
+			.setDesc(t('defaultModeDesc'))
+			.addDropdown(drop => {
+				drop.addOption('size', t('modeSizeLabel'))
+					.addOption('count', t('modeCountLabel'))
+					.setValue(this.plugin.settings.defaultMode)
+					.onChange(async (value) => {
+						this.plugin.settings.defaultMode = value as 'size' | 'count';
+						await this.plugin.saveSettings();
+					});
+			});
+
+		new Setting(behaviorGroup)
+			.setName(t('clickToOpen'))
+			.setDesc(t('clickToOpenDesc'))
 			.addToggle(toggle => {
 				toggle.setValue(this.plugin.settings.clickToOpen)
 					.onChange(async (value) => {
 						this.plugin.settings.clickToOpen = value;
 						await this.plugin.saveSettings();
-						this.display(); // 刷新以显示/隐藏下拉
+						this.display();
 					});
 			});
 
 		if (this.plugin.settings.clickToOpen) {
-			new Setting(containerEl)
-				.setName('打开位置')
-				.setDesc('选择文件打开的位置')
+			new Setting(behaviorGroup)
+				.setName(t('openLocation'))
+				.setDesc(t('openLocationDesc'))
 				.addDropdown(drop => {
-					drop.addOption('tab', '新标签页')
-						.addOption('split', '分屏')
-						.addOption('window', '新窗口')
+					drop.addOption('tab', t('openInTab'))
+						.addOption('split', t('openInSplit'))
+						.addOption('window', t('openInWindow'))
 						.setValue(this.plugin.settings.openLocation)
 						.onChange(async (value) => {
 							this.plugin.settings.openLocation = value as OpenLocation;
@@ -159,11 +422,5 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 						});
 				});
 		}
-
-		// ── 提示 ──
-		containerEl.createEl('p', {
-			text: '修改忽略规则后，请重新打开 Vault Sniffer 视图或点击刷新按钮以生效。',
-			cls: 'setting-item-description',
-		});
 	}
 }

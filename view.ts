@@ -1,16 +1,18 @@
 // @ts-nocheck
-import { ItemView, WorkspaceLeaf, TFile } from 'obsidian';
+import { ItemView, WorkspaceLeaf, TFile, TFolder, FuzzySuggestModal, prepareFuzzySearch } from 'obsidian';
 import * as d3 from 'd3';
 import { FileManager, FileNode } from './fileManager';
-import type { VaultSnifferSettings, DisplayMode } from './settings';
+import type { VaultSnifferSettings, DisplayMode, ExtraProperty, FileSortRule } from './settings';
+import { t } from './i18n';
 
 const VIEW_TYPE = 'vault-sniffer-view';
 
 export class VaultSnifferView extends ItemView {
 	private fileManager: FileManager;
 	private settings: VaultSnifferSettings;
+	private onSaveSettings: () => Promise<void>;
 	private currentPath = '/';
-	private currentFilter: string[] = [];
+	private currentFilterMode: 'all' | 'notes' | 'attachments' = 'all';
 	private currentDepth = 1;
 	private maxDepth = 1;
 	displayMode: DisplayMode = 'count';
@@ -20,16 +22,22 @@ export class VaultSnifferView extends ItemView {
 	private resizeObserver: ResizeObserver | null = null;
 	private resizeTimer: number | null = null;
 	private searchQuery = '';
+	private currentZoom = 100;
 
-	constructor(leaf: WorkspaceLeaf, fileManager: FileManager, settings: VaultSnifferSettings) {
+	constructor(leaf: WorkspaceLeaf, fileManager: FileManager, settings: VaultSnifferSettings, saveSettings: () => Promise<void>) {
 		super(leaf);
 		this.fileManager = fileManager;
 		this.settings = settings;
 		this.displayMode = settings.defaultMode;
+		this.onSaveSettings = saveSettings;
 	}
 
 	getViewType() {
 		return VIEW_TYPE;
+	}
+
+	getIcon() {
+		return 'layout-grid';
 	}
 
 	getDisplayText() {
@@ -83,42 +91,55 @@ export class VaultSnifferView extends ItemView {
 		const toolbar = this.viewContainer!.createDiv('toolbar');
 		this.viewContainer!.prepend(toolbar);
 
-		// 第一行：导航
+		// ── 第一行：路径(左) + 搜索 + 刷新(右) ──
 		const row1 = toolbar.createDiv('toolbar-row');
 
-		const breadcrumb = row1.createDiv('breadcrumb');
+		const pathGroup = row1.createDiv('toolbar-left');
+		const breadcrumb = pathGroup.createDiv('breadcrumb');
 		this.updateBreadcrumb(breadcrumb);
-
 		if (this.currentPath !== '/') {
-			const upBtn = row1.createEl('button', { cls: 'toolbar-btn', attr: { title: '返回上级' } });
+			const upBtn = pathGroup.createEl('button', { cls: 'toolbar-btn', attr: { title: t('goUp') } });
 			upBtn.textContent = '⬆️';
 			upBtn.addEventListener('click', () => this.navigateUp());
 		}
 
-		const refreshBtn = row1.createEl('button', { cls: 'toolbar-btn', attr: { title: '刷新' } });
+		const rightGroup = row1.createDiv('toolbar-right');
+		const searchInput = rightGroup.createEl('input', {
+			cls: 'search-input',
+			attr: { type: 'text', placeholder: t('searchPlaceholder'), spellcheck: 'false' }
+		});
+		searchInput.value = this.searchQuery;
+		const clearSearchBtn = rightGroup.createEl('button', { cls: 'toolbar-btn search-clear-btn', attr: { title: t('clearSearch') } });
+		clearSearchBtn.textContent = '✕';
+		clearSearchBtn.style.display = this.searchQuery ? '' : 'none';
+		searchInput.addEventListener('input', (e) => {
+			this.searchQuery = (e.target as HTMLInputElement).value;
+			clearSearchBtn.style.display = this.searchQuery ? '' : 'none';
+			this.applySearchHighlight();
+		});
+		clearSearchBtn.addEventListener('click', () => {
+			this.searchQuery = '';
+			searchInput.value = '';
+			clearSearchBtn.style.display = 'none';
+			this.applySearchHighlight();
+		});
+		const refreshBtn = rightGroup.createEl('button', { cls: 'toolbar-btn', attr: { title: t('refresh') } });
 		refreshBtn.textContent = '🔄';
 		refreshBtn.addEventListener('click', () => this.refresh());
 
-		// 过滤框
-		const searchInput = row1.createEl('input', {
-			cls: 'search-input',
-			attr: { type: 'text', placeholder: '🔍 过滤...', spellcheck: 'false' }
-		});
-		searchInput.value = this.searchQuery;
-		searchInput.addEventListener('input', (e) => {
-			this.searchQuery = (e.target as HTMLInputElement).value.toLowerCase();
-			this.applySearchHighlight();
-		});
+		const goToFolderBtn = rightGroup.createEl('button', { cls: 'toolbar-btn', attr: { title: t('goToFolder') } });
+		goToFolderBtn.textContent = '📂';
+		goToFolderBtn.addEventListener('click', () => this.openFolderSuggester());
 
-		// 第二行：所有控制
-		const row2 = toolbar.createDiv('toolbar-row');
+		// ── 第二行：深度 | 统计方式 | 显示内容 ──
+		const row2 = toolbar.createDiv('toolbar-row toolbar-row-spread');
 
 		// 深度
 		const depthControl = row2.createDiv('depth-control');
 		const shallowDisabled = this.currentDepth <= 1 ? 'disabled' : '';
 		depthControl.innerHTML = `
 			<button class="toolbar-btn" data-action="shallow" ${shallowDisabled}>➖</button>
-			<span class="depth-indicator">深度: ${this.currentDepth}</span>
+			<span class="depth-indicator">${t('depthLabel')(this.currentDepth)}</span>
 			<button class="toolbar-btn" data-action="deep">➕</button>
 		`;
 		depthControl.addEventListener('click', (e) => {
@@ -128,26 +149,86 @@ export class VaultSnifferView extends ItemView {
 			else if (action === 'shallow') this.changeDepth(-1);
 		});
 
-		// 模式
+		// 缩放
+		const zoomControl = row2.createDiv('zoom-control');
+		const zoomOutDisabled = this.currentZoom <= 100 ? 'disabled' : '';
+		const zoomInDisabled = this.currentZoom >= 300 ? 'disabled' : '';
+		zoomControl.innerHTML = `
+			<button class="toolbar-btn" data-action="zoom-out" ${zoomOutDisabled}>➖</button>
+			<span class="zoom-indicator">${t('zoomLabel')(this.currentZoom)}</span>
+			<button class="toolbar-btn" data-action="zoom-in" ${zoomInDisabled}>➕</button>
+		`;
+		zoomControl.addEventListener('click', (e) => {
+			const target = e.target as HTMLElement;
+			const action = target.dataset.action || target.closest('[data-action]')?.getAttribute('data-action');
+			if (action === 'zoom-in') this.changeZoom(50);
+			else if (action === 'zoom-out') this.changeZoom(-50);
+		});
+
+		// 统计方式
 		const modeToggle = row2.createDiv('mode-toggle');
 		modeToggle.innerHTML = `
-			<button class="mode-btn${this.displayMode === 'size' ? ' active' : ''}" data-mode="size">📦 按大小</button>
-			<button class="mode-btn${this.displayMode === 'count' ? ' active' : ''}" data-mode="count">📊 按数量</button>
+			<button class="mode-btn${this.displayMode === 'size' ? ' active' : ''}" data-mode="size">${t('modeSize')}</button>
+			<button class="mode-btn${this.displayMode === 'count' ? ' active' : ''}" data-mode="count">${t('modeCount')}</button>
 		`;
 		modeToggle.addEventListener('click', (e) => {
 			const target = e.target as HTMLElement;
 			if (target.classList.contains('mode-btn')) this.changeMode(target.dataset.mode as DisplayMode);
 		});
 
-		// 过滤
+		// 排序
+		const sortControl = row2.createDiv('sort-control');
+		sortControl.createEl('span', { text: t('sortLabel'), cls: 'sort-label' });
+		if (this.displayMode === 'size') {
+			const sortSelect = sortControl.createEl('select', { cls: 'sort-select', attr: { disabled: 'true' } });
+			sortSelect.createEl('option', { text: t('sortSizeDefault') });
+		} else {
+			const sortSelect = sortControl.createEl('select', { cls: 'sort-select' });
+			const sortOptions: { value: FileSortRule; label: string }[] = [
+				{ value: 'default', label: t('sortDefault') },
+				{ value: 'name-asc', label: t('sortNameAsc') },
+				{ value: 'name-desc', label: t('sortNameDesc') },
+				{ value: 'ctime-desc', label: t('sortCtimeDesc') },
+				{ value: 'ctime-asc', label: t('sortCtimeAsc') },
+				{ value: 'mtime-desc', label: t('sortMtimeDesc') },
+				{ value: 'mtime-asc', label: t('sortMtimeAsc') },
+				{ value: 'size-desc', label: t('sortSizeDesc') },
+				{ value: 'size-asc', label: t('sortSizeAsc') },
+			];
+			for (const opt of sortOptions) {
+				sortSelect.createEl('option', { text: opt.label, attr: { value: opt.value } });
+			}
+			sortSelect.value = this.settings.fileSortRule;
+			sortSelect.addEventListener('change', async () => {
+				this.settings.fileSortRule = sortSelect.value as FileSortRule;
+				await this.onSaveSettings();
+				this.renderChart();
+			});
+		}
+
+		// 显示内容
 		const filterGroup = row2.createDiv('filter-group');
-		filterGroup.createEl('button', { text: '全部', cls: 'filter-btn active' });
-		filterGroup.createEl('button', { text: '📝 .md', cls: 'filter-btn' });
-		filterGroup.createEl('button', { text: '🖼️ 图片', cls: 'filter-btn' });
-		filterGroup.createEl('button', { text: '📄 PDF', cls: 'filter-btn' });
+		filterGroup.createEl('button', { text: t('filterAll'), cls: `filter-btn${this.currentFilterMode === 'all' ? ' active' : ''}`, attr: { 'data-filter': 'all' } });
+		filterGroup.createEl('button', { text: t('filterNotes'), cls: `filter-btn${this.currentFilterMode === 'notes' ? ' active' : ''}`, attr: { 'data-filter': 'notes' } });
+		filterGroup.createEl('button', { text: t('filterAttachments'), cls: `filter-btn${this.currentFilterMode === 'attachments' ? ' active' : ''}`, attr: { 'data-filter': 'attachments' } });
 		filterGroup.addEventListener('click', (e) => {
 			const target = e.target as HTMLElement;
 			if (target.classList.contains('filter-btn')) this.applyFilter(target);
+		});
+
+		// 仅文件
+		const filesOnlyBtn = row2.createEl('button', {
+			cls: `toolbar-btn files-only-btn${this.showFilesOnly ? ' active' : ''}`,
+			attr: { title: this.showFilesOnly ? t('filesOnlyTitleOn') : t('filesOnlyTitleOff') }
+		});
+		filesOnlyBtn.textContent = this.showFilesOnly ? t('filesOnlyOn') : t('filesOnlyOff');
+		filesOnlyBtn.addEventListener('click', () => {
+			if (filesOnlyBtn.hasAttribute('disabled')) return;
+			this.showFilesOnly = !this.showFilesOnly;
+			filesOnlyBtn.classList.toggle('active', this.showFilesOnly);
+			filesOnlyBtn.textContent = this.showFilesOnly ? t('filesOnlyOn') : t('filesOnlyOff');
+			filesOnlyBtn.title = this.showFilesOnly ? t('filesOnlyTitleOn') : t('filesOnlyTitleOff');
+			this.renderChart();
 		});
 	}
 
@@ -157,24 +238,7 @@ export class VaultSnifferView extends ItemView {
 		await this.renderChart();
 	}
 
-	private markVisibleDepth(node: FileNode, relativeDepth: number = 0) {
-		if (!node) return;
-		if (relativeDepth === this.currentDepth) {
-			node.visibleDepth = this.currentDepth;
-		} else {
-			if (node.visibleDepth) delete node.visibleDepth;
-		}
-
-		if (node.children) {
-			node.children.forEach(child => {
-				this.markVisibleDepth(child, relativeDepth + 1);
-			});
-		}
-	}
-
 	private async renderChart() {
-		if (!this.viewContainer) return;
-
 		this.showLoading();
 		this.isLoading = true;
 
@@ -185,15 +249,27 @@ export class VaultSnifferView extends ItemView {
 
 			if (!data) return;
 
-			if (this.currentFilter.length > 0) {
-				data = this.fileManager.filterByExtension(data, this.currentFilter);
+			// 应用内容过滤
+			if (this.currentFilterMode === 'notes') {
+				data = this.fileManager.filterByExtension(data, ['md']);
+				if (!data) return;
+			} else if (this.currentFilterMode === 'attachments') {
+				data = this.fileManager.filterByNotExtension(data, ['md']);
 				if (!data) return;
 			}
 
+			// 应用深度过滤
 			data = this.fileManager.filterByDepth(data, data.depth + this.currentDepth);
 			if (!data) return;
 
-			this.markVisibleDepth(data, 0);
+			// 仅文件模式
+			const hasDirectFiles = (data.children || []).some((c: any) => c.type === 'file');
+			this.updateFilesOnlyBtn(hasDirectFiles);
+			const effectiveFilesOnly = this.showFilesOnly && hasDirectFiles;
+			if (effectiveFilesOnly) {
+				data = this.fileManager.filterFilesOnly(data);
+				if (!data) return;
+			}
 
 			this.renderChartWithData(data);
 		} finally {
@@ -230,10 +306,34 @@ export class VaultSnifferView extends ItemView {
 		return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
 	}
 
+	private formatWordCount(count: number): string {
+		return t('formatWordCount')(count);
+	}
+
 	private truncateText(text: string, maxWidth: number): string {
 		const avgCharWidth = 7;
 		const maxChars = Math.floor(maxWidth / avgCharWidth);
 		return text.length > maxChars ? text.substring(0, maxChars - 2) + '...' : text;
+	}
+
+	private escapeHtml(text: string): string {
+		return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+	}
+
+	private formatPropValue(val: string): string {
+		if (!this.settings.dateFormat) return val;
+		// 只尝试解析看起来像日期的字符串
+		if (!/^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(val)) return val;
+		const d = new Date(val);
+		if (isNaN(d.getTime())) return val;
+		const pad = (n: number) => n < 10 ? '0' + n : String(n);
+		return this.settings.dateFormat
+			.replace('YYYY', String(d.getFullYear()))
+			.replace('MM', pad(d.getMonth() + 1))
+			.replace('DD', pad(d.getDate()))
+			.replace('HH', pad(d.getHours()))
+			.replace('mm', pad(d.getMinutes()))
+			.replace('ss', pad(d.getSeconds()));
 	}
 
 	private updateBreadcrumb(breadcrumb: HTMLElement) {
@@ -275,20 +375,53 @@ export class VaultSnifferView extends ItemView {
 	}
 
 	private async navigateTo(path: string) {
-		this.currentPath = path;
-		this.currentDepth = 1; // 重置深度
-		this.maxDepth = 1;
+		if (this.isLoading) return;
+		this.isLoading = true;
+		this.showLoading();
 
-		// 先清除旧图表
-		const oldChart = this.viewContainer?.querySelector('.treemap-chart');
-		if (oldChart) oldChart.remove();
+		try {
+			// 先获取数据，避免 DOM 空窗期导致闪烁
+			const newPath = path;
+			let data = newPath === '/'
+				? await this.fileManager.getVaultStructure()
+				: await this.fileManager.getFolderAtPath(newPath);
 
-		// 重建工具栏：移除旧的，在容器开头插入新的
-		const oldToolbar = this.viewContainer?.querySelector('.toolbar');
-		if (oldToolbar) oldToolbar.remove();
-		this.renderToolbar();
+			if (!data) return;
 
-		await this.renderChart();
+			if (this.currentFilterMode === 'notes') {
+				data = this.fileManager.filterByExtension(data, ['md']);
+				if (!data) return;
+			} else if (this.currentFilterMode === 'attachments') {
+				data = this.fileManager.filterByNotExtension(data, ['md']);
+				if (!data) return;
+			}
+
+			data = this.fileManager.filterByDepth(data, data.depth + 1);
+			if (!data) return;
+
+			// 数据就绪，一次性更新状态和 DOM
+			this.currentPath = newPath;
+			this.currentDepth = 1;
+			this.maxDepth = 1;
+
+			const oldToolbar = this.viewContainer?.querySelector('.toolbar');
+			if (oldToolbar) oldToolbar.remove();
+			this.renderToolbar();
+
+			// 仅文件模式
+			const hasDirectFiles = (data.children || []).some((c: any) => c.type === 'file');
+			this.updateFilesOnlyBtn(hasDirectFiles);
+			const effectiveFilesOnly = this.showFilesOnly && hasDirectFiles;
+			if (effectiveFilesOnly) {
+				data = this.fileManager.filterFilesOnly(data);
+				if (!data) return;
+			}
+
+			this.renderChartWithData(data);
+		} finally {
+			this.hideLoading();
+			this.isLoading = false;
+		}
 	}
 
 	private renderChartWithData(data: any) {
@@ -316,34 +449,33 @@ export class VaultSnifferView extends ItemView {
 
 		// 等 DOM 布局完成后计算实际尺寸
 		const width = chartContainer.clientWidth;
-		const height = chartContainer.clientHeight;
+		const baseHeight = chartContainer.clientHeight;
+		const height = Math.round(baseHeight * this.currentZoom / 100);
 
-		if (width <= 0 || height <= 0) return;
+		if (width <= 0 || baseHeight <= 0) return;
 
-		// 将 visible depth 节点变成叶节点，使 treemap 能正确布局
-		const prepareForTreemap = (node: any): any => {
-			if (node.visibleDepth === this.currentDepth) {
-				return { ...node, children: undefined };
-			}
-			if (node.children) {
-				const children = node.children
-					.map((c: any) => prepareForTreemap(c))
-					.filter(Boolean);
-				return { ...node, children: children.length > 0 ? children : undefined };
-			}
-			return { ...node };
-		};
+		// 缩放时允许纵向滚动
+		if (this.currentZoom > 100) {
+			chartContainer.style.overflowY = 'auto';
+		} else {
+			chartContainer.style.overflowY = 'hidden';
+		}
 
-		const treemapData = prepareForTreemap(data);
-
-		// 为 D3 创建数据
-		const hierarchy = d3.hierarchy(treemapData)
+		// 为 D3 创建数据（filterByDepth 已将目标深度节点变为叶节点）
+		const hierarchy = d3.hierarchy(data)
 			.sum((d: any) => (!d.children || d.children.length === 0)
 				? (this.displayMode === 'size' ? d.size : d.count)
 				: 0)
-			.sort((a: any, b: any) => (b.value || 0) - (a.value || 0));
+			.sort((a: any, b: any) => {
+				if (this.displayMode === 'size') return (b.value || 0) - (a.value || 0);
+				const aIsFile = a.data.type === 'file';
+				const bIsFile = b.data.type === 'file';
+				if (!aIsFile || !bIsFile) return (b.value || 0) - (a.value || 0);
+				return this.compareBySort(a.data, b.data);
+			});
 
 		const treemap = d3.treemap<any>()
+			.tile(d3.treemapSquarify.ratio(4))
 			.size([width, height])
 			.padding(2)
 			.round(true);
@@ -352,7 +484,7 @@ export class VaultSnifferView extends ItemView {
 		const leaves = root.leaves();
 
 		if (leaves.length === 0) {
-			chartContainer.createEl('div', { text: '当前层级没有内容' });
+			chartContainer.createEl('div', { text: t('emptyLevel') });
 			return;
 		}
 
@@ -392,6 +524,7 @@ export class VaultSnifferView extends ItemView {
 			});
 
 		// 添加文本标签
+		const extraProps = (this.settings.extraProperties || []).filter(p => p.builtin || p.key);
 		cells.each((d: any, i: number, nodes: any[]) => {
 			const g = d3.select(nodes[i]);
 			const rectWidth = d.x1 - d.x0;
@@ -400,35 +533,70 @@ export class VaultSnifferView extends ItemView {
 
 			if (rectWidth < 40 || rectHeight < 18) return;
 
+			let yOffset = 14;
+			const lineHeight = 13;
+
 			// 名称（优先使用 title 属性）
 			const displayName = d.data.displayName || d.data.name;
 			g.append('text')
-				.attr('x', 4).attr('y', 14)
+				.attr('x', 4).attr('y', yOffset)
 				.text(this.truncateText(displayName, rectWidth - 8))
 				.style('font-size', '11px')
 				.style('fill', fill)
 				.style('pointer-events', 'none');
+			yOffset += lineHeight;
 
-			// 大小
-			if (rectHeight > 34 && rectWidth > 50) {
-				g.append('text')
-					.attr('x', 4).attr('y', 28)
-					.text(this.formatSize(d.data.size))
-					.style('font-size', '10px')
-					.style('fill', fill)
-					.style('opacity', '0.75')
-					.style('pointer-events', 'none');
-			}
-
-			// 文件数量（仅文件夹）
-			if (rectHeight > 48 && rectWidth > 50 && d.data.type === 'folder') {
-				g.append('text')
-					.attr('x', 4).attr('y', 42)
-					.text(`${d.data.count} 个文件`)
-					.style('font-size', '10px')
-					.style('fill', fill)
-					.style('opacity', '0.6')
-					.style('pointer-events', 'none');
+			if (d.data.type === 'folder') {
+				// 文件夹：始终显示文件数和体积
+				if (yOffset + 2 <= rectHeight && rectWidth > 50) {
+					g.append('text')
+						.attr('x', 4).attr('y', yOffset)
+						.text(this.truncateText(`${t('fileCount')(d.data.count)}`, rectWidth - 8))
+						.style('font-size', '10px')
+						.style('fill', fill)
+						.style('opacity', '0.7')
+						.style('pointer-events', 'none');
+					yOffset += lineHeight;
+				}
+				if (yOffset + 2 <= rectHeight && rectWidth > 50) {
+					g.append('text')
+						.attr('x', 4).attr('y', yOffset)
+						.text(this.truncateText(this.formatSize(d.data.size), rectWidth - 8))
+						.style('font-size', '10px')
+						.style('fill', fill)
+						.style('opacity', '0.7')
+						.style('pointer-events', 'none');
+				}
+			} else {
+				// 所有文件：按 extraProperties 配置显示
+				for (const prop of extraProps) {
+					if (!prop.showInRect) continue;
+					if (yOffset + 2 > rectHeight || rectWidth < 50) break;
+					let text: string | null = null;
+					if (prop.builtin === 'wordCount') {
+						// 只对 md 文件生效
+						if (d.data.extension === 'md' && d.data.wordCount != null) text = this.formatWordCount(d.data.wordCount);
+					} else if (prop.builtin === 'fileSize') {
+						text = this.formatSize(d.data.size);
+					} else if (prop.builtin === 'folder') {
+						const parts = d.data.path.split('/');
+						if (parts.length >= 2) text = parts[parts.length - 2];
+					} else if (d.data.extension === 'md' && d.data.extraProps) {
+						// 自定义 frontmatter 只对 md 文件生效
+						const val = d.data.extraProps[prop.key];
+						if (val) text = this.formatPropValue(val);
+					}
+					if (text == null) continue;
+					const prefix = prop.label || '';
+					g.append('text')
+						.attr('x', 4).attr('y', yOffset)
+						.text(this.truncateText(prefix + text, rectWidth - 8))
+						.style('font-size', '10px')
+						.style('fill', fill)
+						.style('opacity', '0.7')
+						.style('pointer-events', 'none');
+					yOffset += lineHeight;
+				}
 			}
 		});
 
@@ -450,13 +618,42 @@ export class VaultSnifferView extends ItemView {
 			})
 			.on('mousemove', (event: any, d: any) => {
 				const icon = d.data.type === 'folder' ? '📁' : '📄';
-				const displayName = d.data.displayName || d.data.name;
+				const tooltipName = this.settings.useTitleInTooltip
+					? (d.data.displayName || d.data.name)
+					: d.data.name;
 				const size = this.formatSize(d.data.size);
-				const extra = d.data.type === 'folder' ? ` · ${d.data.count} 个文件` : '';
-				this.tooltip
-					.html(`${icon} <strong>${displayName}</strong><br/>${size}${extra}`)
-					.style('left', (event.pageX + 10) + 'px')
-					.style('top', (event.pageY + 10) + 'px');
+
+				if (d.data.type === 'folder') {
+					// 文件夹：始终显示文件数和体积
+					this.tooltip
+						.html(`${icon} <strong>${this.escapeHtml(tooltipName)}</strong><br/>${size}<br/>${t('fileCount')(d.data.count)}`)
+						.style('left', (event.pageX + 10) + 'px')
+						.style('top', (event.pageY + 10) + 'px');
+				} else {
+					// 所有文件：按 extraProperties 配置显示
+					const infoTokens: string[] = [];
+					let propsHtml = '';
+					for (const prop of extraProps) {
+						if (!prop.showInTooltip) continue;
+						const prefix = prop.label || '';
+						if (prop.builtin === 'wordCount') {
+							if (d.data.extension === 'md' && d.data.wordCount != null) infoTokens.push(prefix + this.formatWordCount(d.data.wordCount));
+						} else if (prop.builtin === 'fileSize') {
+							infoTokens.push(prefix + size);
+						} else if (prop.builtin === 'folder') {
+							const parts = d.data.path.split('/');
+							if (parts.length >= 2) infoTokens.push(prefix + parts[parts.length - 2]);
+						} else if (d.data.extension === 'md' && d.data.extraProps) {
+							const val = d.data.extraProps[prop.key];
+							if (val) propsHtml += `<br/><span style="opacity:0.75">${this.escapeHtml(prop.key)}: ${this.escapeHtml(String(val))}</span>`;
+						}
+					}
+					const infoLine = infoTokens.join(' · ');
+					this.tooltip
+						.html(`${icon} <strong>${this.escapeHtml(tooltipName)}</strong>${infoLine ? '<br/>' + infoLine : ''}${propsHtml}`)
+						.style('left', (event.pageX + 10) + 'px')
+						.style('top', (event.pageY + 10) + 'px');
+				}
 			})
 			.on('mouseleave', (event: any, d: any) => {
 				this.tooltip.style('display', 'none');
@@ -470,20 +667,23 @@ export class VaultSnifferView extends ItemView {
 		const svg = this.viewContainer?.querySelector('.treemap-chart svg');
 		if (!svg) return;
 
-		const query = this.searchQuery;
+		const query = this.searchQuery.trim();
+		const keywords = query ? query.split(/\s+/).filter(k => k) : [];
+		const fuzzyMatchers = keywords.map(k => prepareFuzzySearch(k));
+
 		d3.select(svg).selectAll('g').each(function(d: any) {
 			const g = d3.select(this);
 			const rect = g.select('rect');
 			if (!rect.node()) return;
 
-			if (!query) {
+			if (fuzzyMatchers.length === 0) {
 				rect.style('opacity', null);
 				return;
 			}
 
-			const name = (d?.data?.displayName || d?.data?.name || '').toLowerCase();
-			const path = (d?.data?.path || '').toLowerCase();
-			const match = name.includes(query) || path.includes(query);
+			const name = d?.data?.displayName || d?.data?.name || '';
+			const path = d?.data?.path || '';
+			const match = fuzzyMatchers.every(fn => fn(name) || fn(path));
 			rect.style('opacity', match ? '1' : '0.15');
 		});
 	}
@@ -494,7 +694,7 @@ export class VaultSnifferView extends ItemView {
 		const size = this.formatSize(data.size || 0);
 		const items = data.children?.length || 0;
 
-		statusBar.textContent = `${items} 个项目（${folders} 文件夹、${items - folders} 文件）· ${files} 个文件总计 · ${size}`;
+		statusBar.textContent = t('statusBar')(items, folders, files, size);
 	}
 
 	private openFile(path: string) {
@@ -514,24 +714,30 @@ export class VaultSnifferView extends ItemView {
 	}
 
 	private applyFilter(btn: HTMLElement) {
-		// 更新按钮状态
 		const buttons = btn.parentElement!.querySelectorAll('.filter-btn');
 		buttons.forEach(b => b.classList.remove('active'));
 		btn.classList.add('active');
 
-		const filterText = btn.textContent!;
-
-		if (filterText === '全部') {
-			this.currentFilter = [];
-		} else if (filterText.includes('.md')) {
-			this.currentFilter = ['md'];
-		} else if (filterText.includes('图片')) {
-			this.currentFilter = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'];
-		} else if (filterText.includes('PDF')) {
-			this.currentFilter = ['pdf'];
-		}
-
+		const mode = btn.dataset.filter as 'all' | 'notes' | 'attachments';
+		this.currentFilterMode = mode || 'all';
 		this.renderChart();
+	}
+
+	private updateFilesOnlyBtn(hasFiles: boolean) {
+		const btn = this.viewContainer?.querySelector('.files-only-btn') as HTMLButtonElement | null;
+		if (!btn) return;
+		if (hasFiles) {
+			btn.removeAttribute('disabled');
+		} else {
+			btn.setAttribute('disabled', 'true');
+			// 如果当前没有文件，强制关闭仅文件模式
+			if (this.showFilesOnly) {
+				this.showFilesOnly = false;
+				btn.classList.remove('active');
+				btn.textContent = t('filesOnlyOff');
+				btn.title = t('filesOnlyTitleOff');
+			}
+		}
 	}
 
 	private showLoading() {
@@ -546,13 +752,11 @@ export class VaultSnifferView extends ItemView {
 			top: 0;
 			left: 0;
 			right: 0;
-			bottom: 0;
-			background: rgba(0, 0, 0, 0.5);
+			background: transparent;
 			display: flex;
-			flex-direction: column;
-			align-items: center;
 			justify-content: center;
 			z-index: 1000;
+			pointer-events: none;
 		`;
 
 		const bar = document.createElement('div');
@@ -605,7 +809,7 @@ export class VaultSnifferView extends ItemView {
 	private updateDepthIndicator() {
 		const indicator = this.viewContainer?.querySelector('.depth-indicator');
 		if (indicator) {
-			indicator.textContent = `深度: ${this.currentDepth}`;
+			indicator.textContent = t('depthLabel')(this.currentDepth);
 		}
 	}
 
@@ -620,19 +824,61 @@ export class VaultSnifferView extends ItemView {
 		}
 	}
 
+	private changeZoom(delta: number) {
+		if (this.isLoading) return;
+		const newZoom = this.currentZoom + delta;
+		if (newZoom >= 100 && newZoom <= 300) {
+			this.currentZoom = newZoom;
+			this.updateZoomIndicator();
+			this.updateZoomButtons();
+			this.renderChart();
+		}
+	}
+
+	private updateZoomIndicator() {
+		const indicator = this.viewContainer?.querySelector('.zoom-indicator');
+		if (indicator) {
+			indicator.textContent = t('zoomLabel')(this.currentZoom);
+		}
+	}
+
+	private updateZoomButtons() {
+		const zoomOutBtn = this.viewContainer?.querySelector('[data-action="zoom-out"]') as HTMLElement;
+		const zoomInBtn = this.viewContainer?.querySelector('[data-action="zoom-in"]') as HTMLElement;
+		if (zoomOutBtn) {
+			if (this.currentZoom <= 100) zoomOutBtn.setAttribute('disabled', 'true');
+			else zoomOutBtn.removeAttribute('disabled');
+		}
+		if (zoomInBtn) {
+			if (this.currentZoom >= 300) zoomInBtn.setAttribute('disabled', 'true');
+			else zoomInBtn.removeAttribute('disabled');
+		}
+	}
+
+	private compareBySort(a: FileNode, b: FileNode): number {
+		const rule = this.settings.fileSortRule;
+		switch (rule) {
+			case 'name-asc': return a.name.localeCompare(b.name);
+			case 'name-desc': return b.name.localeCompare(a.name);
+			case 'ctime-desc': return (b.ctime || 0) - (a.ctime || 0);
+			case 'ctime-asc': return (a.ctime || 0) - (b.ctime || 0);
+			case 'mtime-desc': return (b.mtime || 0) - (a.mtime || 0);
+			case 'mtime-asc': return (a.mtime || 0) - (b.mtime || 0);
+			case 'size-desc': return (b.size || 0) - (a.size || 0);
+			case 'size-asc': return (a.size || 0) - (b.size || 0);
+			default: return (b.count || 0) - (a.count || 0);
+		}
+	}
+
 	private changeMode(mode: DisplayMode) {
 		if (this.displayMode === mode) return;
 
 		this.displayMode = mode;
 
-		// 更新按钮状态
-		const buttons = this.viewContainer?.querySelectorAll('.mode-btn');
-		buttons?.forEach(b => {
-			b.classList.remove('active');
-			if (b.dataset.mode === mode) {
-				b.classList.add('active');
-			}
-		});
+		// 重建工具栏以切换排序控件的可见性
+		const oldToolbar = this.viewContainer?.querySelector('.toolbar');
+		if (oldToolbar) oldToolbar.remove();
+		this.renderToolbar();
 
 		this.renderChart();
 	}
@@ -652,6 +898,13 @@ export class VaultSnifferView extends ItemView {
 		}));
 	}
 
+	openFolderSuggester() {
+		const modal = new FolderSuggestModal(this.app, (folder: TFolder) => {
+			this.navigateTo(folder.path);
+		});
+		modal.open();
+	}
+
 	async onClose() {
 		if (this.resizeObserver) {
 			this.resizeObserver.disconnect();
@@ -665,5 +918,37 @@ export class VaultSnifferView extends ItemView {
 		this.tooltip = null;
 		this.viewContainer = null;
 		this.containerEl.empty();
+	}
+}
+
+class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
+	private onChoose: (folder: TFolder) => void;
+
+	constructor(app: any, onChoose: (folder: TFolder) => void) {
+		super(app);
+		this.onChoose = onChoose;
+		this.setPlaceholder(t('goToFolderDesc'));
+	}
+
+	getItems(): TFolder[] {
+		const folders: TFolder[] = [];
+		const collect = (folder: TFolder) => {
+			for (const child of folder.children) {
+				if (child instanceof TFolder) {
+					folders.push(child);
+					collect(child);
+				}
+			}
+		};
+		collect(this.app.vault.getRoot());
+		return folders;
+	}
+
+	getItemText(folder: TFolder): string {
+		return folder.path;
+	}
+
+	onChooseItem(folder: TFolder): void {
+		this.onChoose(folder);
 	}
 }

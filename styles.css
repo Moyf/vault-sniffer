@@ -17,17 +17,37 @@
     flex-direction: column;
     gap: 4px;
     flex-shrink: 0;
+    align-items: stretch;
 }
 
 .vault-sniffer-view .toolbar-row {
     display: flex;
     align-items: center;
     gap: 6px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+}
+
+.vault-sniffer-view .toolbar-row-spread {
+    justify-content: space-between;
+}
+
+.vault-sniffer-view .toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    flex: 1;
+}
+
+.vault-sniffer-view .toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
 }
 
 .vault-sniffer-view .toolbar-row .breadcrumb {
-    margin-right: auto;
+    min-width: 0;
 }
 
 .vault-sniffer-view .toolbar-btn {
@@ -58,7 +78,6 @@
     overflow: hidden;
     white-space: nowrap;
     min-width: 0;
-    flex: 1;
 }
 
 .vault-sniffer-view .breadcrumb-separator {
@@ -108,6 +127,19 @@
     white-space: nowrap;
 }
 
+.vault-sniffer-view .zoom-control {
+    display: flex;
+    gap: 3px;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.vault-sniffer-view .zoom-indicator {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
 .vault-sniffer-view .mode-toggle {
     display: flex;
     gap: 3px;
@@ -115,7 +147,7 @@
 }
 
 .vault-sniffer-view .mode-btn {
-    padding: 2px 8px;
+    padding: 2px 5px;
     border: 1px solid var(--background-modifier-border);
     border-radius: 4px;
     background: var(--background-secondary);
@@ -128,9 +160,44 @@
     background: var(--background-modifier-hover);
 }
 
+.vault-sniffer-view .toolbar-btn.active {
+    border-color: #f5a623;
+    box-shadow: 0 0 0 1px #f5a623;
+    color: #f5a623;
+}
+
 .vault-sniffer-view .mode-btn.active {
     background: var(--interactive-accent);
     color: var(--text-on-accent);
+    border-color: var(--interactive-accent);
+}
+
+.vault-sniffer-view .sort-control {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.vault-sniffer-view .sort-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.vault-sniffer-view .sort-select {
+    padding: 2px 4px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    font-size: 11px;
+    cursor: pointer;
+    outline: none;
+    max-width: 160px;
+}
+
+.vault-sniffer-view .sort-select:focus {
     border-color: var(--interactive-accent);
 }
 
@@ -204,4 +271,206 @@
     align-items: center;
     justify-content: center;
     z-index: 1000;
+}
+
+/* ── 设置面板 ── */
+
+.setting-group {
+    margin-bottom: 20px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.setting-group-title {
+    margin: 16px 0 8px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-normal);
+}
+
+.extra-props-list {
+    margin: 8px 0 4px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* 列标题行 */
+.extra-prop-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.extra-prop-header-spacer {
+    width: 18px;
+    flex-shrink: 0;
+}
+
+.extra-prop-header-key {
+    width: 130px;
+    flex-shrink: 0;
+}
+
+.extra-prop-header-label {
+    width: 130px;
+    flex-shrink: 0;
+}
+
+.extra-prop-header-icon {
+    width: 28px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.extra-prop-header-icon svg {
+    width: 13px;
+    height: 13px;
+}
+
+.extra-prop-header-delete {
+    width: 28px;
+    flex-shrink: 0;
+}
+
+/* 属性行 */
+.extra-prop-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-secondary);
+    cursor: grab;
+}
+
+.extra-prop-item.dragging {
+    opacity: 0.4;
+}
+
+.extra-prop-item.drag-over {
+    border-color: var(--interactive-accent);
+    background: var(--background-modifier-hover);
+}
+
+.extra-prop-handle {
+    color: var(--text-muted);
+    cursor: grab;
+    user-select: none;
+    font-size: 14px;
+    line-height: 1;
+    width: 18px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* 内置属性固定名称（只读，外观与 input 对齐） */
+.extra-prop-name-fixed {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 6px;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.extra-prop-input {
+    padding: 2px 6px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 13px;
+}
+
+.extra-prop-key {
+    width: 130px;
+    flex-shrink: 0;
+}
+
+.extra-prop-label {
+    width: 130px;
+    flex-shrink: 0;
+}
+
+.extra-prop-spacer {
+    flex: 1;
+}
+
+/* 图标切换按钮 */
+.extra-prop-toggle {
+    width: 28px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.extra-prop-toggle svg {
+    width: 14px;
+    height: 14px;
+}
+
+.extra-prop-toggle.active {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border-color: var(--interactive-accent);
+}
+
+.extra-prop-toggle.active svg {
+    color: var(--text-on-accent);
+}
+
+.extra-prop-toggle:hover {
+    background: var(--background-modifier-hover);
+}
+
+.extra-prop-toggle.active:hover {
+    opacity: 0.85;
+    background: var(--interactive-accent);
+}
+
+/* 删除按钮 */
+.extra-prop-remove {
+    width: 28px;
+    height: 26px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.extra-prop-remove svg {
+    width: 14px;
+    height: 14px;
+}
+
+.extra-prop-remove:hover {
+    color: var(--text-error);
+    background: var(--background-modifier-hover);
+}
+
+.extra-prop-delete-placeholder {
+    width: 28px;
+    flex-shrink: 0;
 }

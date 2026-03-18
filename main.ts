@@ -2,6 +2,7 @@ import { Plugin, WorkspaceLeaf } from 'obsidian';
 import { FileManager } from './fileManager';
 import { VaultSnifferView } from './view';
 import { VaultSnifferSettings, VaultSnifferSettingTab, DEFAULT_SETTINGS } from './settings';
+import { t } from './i18n';
 
 const VIEW_TYPE = 'vault-sniffer-view';
 
@@ -25,11 +26,11 @@ export default class VaultSnifferPlugin extends Plugin {
 		// Register view
 		this.registerView(
 			VIEW_TYPE,
-			(leaf) => new VaultSnifferView(leaf, this.fileManager, this.settings)
+			(leaf) => new VaultSnifferView(leaf, this.fileManager, this.settings, this.saveSettings.bind(this))
 		);
 
 		// This adds a ribbon icon
-		this.addRibbonIcon('pie-chart', 'Vault Sniffer', () => {
+		this.addRibbonIcon('layout-grid', 'Vault Sniffer', () => {
 			this.activateView();
 		});
 
@@ -40,9 +41,22 @@ export default class VaultSnifferPlugin extends Plugin {
 		// This adds a simple command that can be triggered anywhere
 		this.addCommand({
 			id: 'open-vault-sniffer',
-			name: 'Open vault sniffer',
+			name: t('openVaultSniffer'),
 			callback: () => {
 				this.activateView();
+			},
+		});
+
+		this.addCommand({
+			id: 'go-to-folder',
+			name: t('goToFolder'),
+			callback: async () => {
+				await this.activateView();
+				const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE);
+				if (leaves.length > 0) {
+					const view = leaves[0].view as VaultSnifferView;
+					view.openFolderSuggester();
+				}
 			},
 		});
 	}
@@ -52,7 +66,40 @@ export default class VaultSnifferPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		const loaded = (await this.loadData()) || {};
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+		// 迁移旧版 string[] 格式的 extraProperties
+		if (this.settings.extraProperties?.length > 0 && typeof this.settings.extraProperties[0] === 'string') {
+			this.settings.extraProperties = (this.settings.extraProperties as any[]).map((key: string) => ({
+				key, label: '', showInRect: true, showInTooltip: true
+			}));
+			// 清理旧的全局开关
+			delete (this.settings as any).showExtraPropsInRect;
+			delete (this.settings as any).showExtraPropsInTooltip;
+		}
+		// 迁移：注入内置属性（字数、体积）
+		const hasWordCount = this.settings.extraProperties.some((p: any) => p.builtin === 'wordCount');
+		const hasFileSize = this.settings.extraProperties.some((p: any) => p.builtin === 'fileSize');
+		if (!hasWordCount || !hasFileSize) {
+			if (!hasWordCount) {
+				const old: any = (loaded as any).wordCount || {};
+				this.settings.extraProperties.unshift({ key: '', label: old.label || '', showInRect: old.showInRect ?? true, showInTooltip: old.showInTooltip ?? true, builtin: 'wordCount' as const });
+			}
+			if (!hasFileSize) {
+				const old: any = (loaded as any).fileSize || {};
+				const wcIdx = this.settings.extraProperties.findIndex((p: any) => p.builtin === 'wordCount');
+				this.settings.extraProperties.splice(wcIdx + 1, 0, { key: '', label: old.label || '', showInRect: old.showInRect ?? true, showInTooltip: old.showInTooltip ?? true, builtin: 'fileSize' as const });
+			}
+			delete (this.settings as any).wordCount;
+			delete (this.settings as any).fileSize;
+			await this.saveData(this.settings);
+		}
+		// 迁移：注入内置属性（文件夹）
+		const hasFolder = this.settings.extraProperties.some((p: any) => p.builtin === 'folder');
+		if (!hasFolder) {
+			this.settings.extraProperties.push({ key: '', label: '', showInRect: true, showInTooltip: true, builtin: 'folder' as const });
+			await this.saveData(this.settings);
+		}
 	}
 
 	async saveSettings() {

@@ -1,9 +1,9 @@
 {
 	"id": "vault-sniffer",
 	"name": "Vault Sniffer",
-	"version": "0.0.1",
+	"version": "0.3.0",
 	"minAppVersion": "0.15.0",
-	"description": "Visualize your vault's file distribution with an interactive SpaceSniffer-style treemap chart.",
+	"description": "Visualize your vault's file distribution with an interactive treemap. Supports drill-down navigation, file size/count modes, search, and customizable display properties.",
 	"author": "Moy",
 	"authorUrl": "https://github.com/yourusername",
 	"isDesktopOnly": false
