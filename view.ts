@@ -3,6 +3,7 @@ import { ItemView, WorkspaceLeaf, TFile } from 'obsidian';
 import * as d3 from 'd3';
 import { FileManager, FileNode } from './fileManager';
 import type { VaultSnifferSettings, DisplayMode, ExtraProperty } from './settings';
+import { t } from './i18n';
 
 const VIEW_TYPE = 'vault-sniffer-view';
 
@@ -88,7 +89,7 @@ export class VaultSnifferView extends ItemView {
 
 		const pathGroup = row1.createDiv('toolbar-left');
 		if (this.currentPath !== '/') {
-			const upBtn = pathGroup.createEl('button', { cls: 'toolbar-btn', attr: { title: '返回上级' } });
+			const upBtn = pathGroup.createEl('button', { cls: 'toolbar-btn', attr: { title: t('goUp') } });
 			upBtn.textContent = '⬆️';
 			upBtn.addEventListener('click', () => this.navigateUp());
 		}
@@ -98,14 +99,14 @@ export class VaultSnifferView extends ItemView {
 		const rightGroup = row1.createDiv('toolbar-right');
 		const searchInput = rightGroup.createEl('input', {
 			cls: 'search-input',
-			attr: { type: 'text', placeholder: '🔍 过滤...', spellcheck: 'false' }
+			attr: { type: 'text', placeholder: t('searchPlaceholder'), spellcheck: 'false' }
 		});
 		searchInput.value = this.searchQuery;
 		searchInput.addEventListener('input', (e) => {
 			this.searchQuery = (e.target as HTMLInputElement).value.toLowerCase();
 			this.applySearchHighlight();
 		});
-		const refreshBtn = rightGroup.createEl('button', { cls: 'toolbar-btn', attr: { title: '刷新' } });
+		const refreshBtn = rightGroup.createEl('button', { cls: 'toolbar-btn', attr: { title: t('refresh') } });
 		refreshBtn.textContent = '🔄';
 		refreshBtn.addEventListener('click', () => this.refresh());
 
@@ -117,7 +118,7 @@ export class VaultSnifferView extends ItemView {
 		const shallowDisabled = this.currentDepth <= 1 ? 'disabled' : '';
 		depthControl.innerHTML = `
 			<button class="toolbar-btn" data-action="shallow" ${shallowDisabled}>➖</button>
-			<span class="depth-indicator">深度: ${this.currentDepth}</span>
+			<span class="depth-indicator">${t('depthLabel')(this.currentDepth)}</span>
 			<button class="toolbar-btn" data-action="deep">➕</button>
 		`;
 		depthControl.addEventListener('click', (e) => {
@@ -130,8 +131,8 @@ export class VaultSnifferView extends ItemView {
 		// 统计方式
 		const modeToggle = row2.createDiv('mode-toggle');
 		modeToggle.innerHTML = `
-			<button class="mode-btn${this.displayMode === 'size' ? ' active' : ''}" data-mode="size">📦 按大小</button>
-			<button class="mode-btn${this.displayMode === 'count' ? ' active' : ''}" data-mode="count">📊 按数量</button>
+			<button class="mode-btn${this.displayMode === 'size' ? ' active' : ''}" data-mode="size">${t('modeSize')}</button>
+			<button class="mode-btn${this.displayMode === 'count' ? ' active' : ''}" data-mode="count">${t('modeCount')}</button>
 		`;
 		modeToggle.addEventListener('click', (e) => {
 			const target = e.target as HTMLElement;
@@ -140,9 +141,9 @@ export class VaultSnifferView extends ItemView {
 
 		// 显示内容
 		const filterGroup = row2.createDiv('filter-group');
-		filterGroup.createEl('button', { text: '全部', cls: `filter-btn${this.currentFilterMode === 'all' ? ' active' : ''}`, attr: { 'data-filter': 'all' } });
-		filterGroup.createEl('button', { text: '📝 笔记', cls: `filter-btn${this.currentFilterMode === 'notes' ? ' active' : ''}`, attr: { 'data-filter': 'notes' } });
-		filterGroup.createEl('button', { text: '📎 附件', cls: `filter-btn${this.currentFilterMode === 'attachments' ? ' active' : ''}`, attr: { 'data-filter': 'attachments' } });
+		filterGroup.createEl('button', { text: t('filterAll'), cls: `filter-btn${this.currentFilterMode === 'all' ? ' active' : ''}`, attr: { 'data-filter': 'all' } });
+		filterGroup.createEl('button', { text: t('filterNotes'), cls: `filter-btn${this.currentFilterMode === 'notes' ? ' active' : ''}`, attr: { 'data-filter': 'notes' } });
+		filterGroup.createEl('button', { text: t('filterAttachments'), cls: `filter-btn${this.currentFilterMode === 'attachments' ? ' active' : ''}`, attr: { 'data-filter': 'attachments' } });
 		filterGroup.addEventListener('click', (e) => {
 			const target = e.target as HTMLElement;
 			if (target.classList.contains('filter-btn')) this.applyFilter(target);
@@ -215,9 +216,7 @@ export class VaultSnifferView extends ItemView {
 	}
 
 	private formatWordCount(count: number): string {
-		if (count >= 10000) return (count / 10000).toFixed(1).replace(/\.0$/, '') + ' 万字';
-		if (count >= 1000) return (count / 1000).toFixed(1).replace(/\.0$/, '') + ' 千字';
-		return count + ' 字';
+		return t('formatWordCount')(count);
 	}
 
 	private truncateText(text: string, maxWidth: number): string {
@@ -370,7 +369,7 @@ export class VaultSnifferView extends ItemView {
 		const leaves = root.leaves();
 
 		if (leaves.length === 0) {
-			chartContainer.createEl('div', { text: '当前层级没有内容' });
+			chartContainer.createEl('div', { text: t('emptyLevel') });
 			return;
 		}
 
@@ -461,7 +460,7 @@ export class VaultSnifferView extends ItemView {
 			if (yOffset + 2 <= rectHeight && rectWidth > 50 && d.data.type === 'folder') {
 				g.append('text')
 					.attr('x', 4).attr('y', yOffset)
-					.text(`${d.data.count} 个文件`)
+					.text(`${t('fileCount')(d.data.count)}`)
 					.style('font-size', '10px')
 					.style('fill', fill)
 					.style('opacity', '0.6')
@@ -491,7 +490,7 @@ export class VaultSnifferView extends ItemView {
 					? (d.data.displayName || d.data.name)
 					: d.data.name;
 				const size = this.formatSize(d.data.size);
-				const folderExtra = d.data.type === 'folder' ? `<br/>${d.data.count} 个文件` : '';
+				const folderExtra = d.data.type === 'folder' ? `<br/>${t('fileCount')(d.data.count)}` : '';
 				// 统一遍历显示属性（内置字数/体积 + 自定义属性）
 				const infoTokens: string[] = [];
 				let propsHtml = '';
@@ -549,7 +548,7 @@ export class VaultSnifferView extends ItemView {
 		const size = this.formatSize(data.size || 0);
 		const items = data.children?.length || 0;
 
-		statusBar.textContent = `${items} 个项目（${folders} 文件夹、${items - folders} 文件）· ${files} 个文件总计 · ${size}`;
+		statusBar.textContent = t('statusBar')(items, folders, files, size);
 	}
 
 	private openFile(path: string) {
@@ -647,7 +646,7 @@ export class VaultSnifferView extends ItemView {
 	private updateDepthIndicator() {
 		const indicator = this.viewContainer?.querySelector('.depth-indicator');
 		if (indicator) {
-			indicator.textContent = `深度: ${this.currentDepth}`;
+			indicator.textContent = t('depthLabel')(this.currentDepth);
 		}
 	}
 

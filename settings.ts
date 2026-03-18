@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting, setIcon } from 'obsidian';
 import type VaultSnifferPlugin from './main';
+import { t } from './i18n';
 
 export type OpenLocation = 'tab' | 'split' | 'window';
 export type DisplayMode = 'size' | 'count';
@@ -59,11 +60,11 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 		// 忽略规则
 		// ════════════════════════════════
 		const ignoreGroup = containerEl.createDiv('setting-group');
-		ignoreGroup.createEl('h3', { text: '忽略规则', cls: 'setting-group-title' });
+		ignoreGroup.createEl('h3', { text: t('ignoreRules'), cls: 'setting-group-title' });
 
 		new Setting(ignoreGroup)
-			.setName('忽略文件夹')
-			.setDesc('输入要忽略的文件夹名称，每行一个。匹配任意层级中同名的文件夹。')
+			.setName(t('ignoreFolders'))
+			.setDesc(t('ignoreFoldersDesc'))
 			.addTextArea(text => {
 				text.setPlaceholder('Assets\nassets\nnode_modules')
 					.setValue(this.plugin.settings.ignoreFolders.join('\n'))
@@ -79,8 +80,8 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(ignoreGroup)
-			.setName('忽略文件类型')
-			.setDesc('输入要忽略的文件扩展名（不含点），每行一个。例如：tmp、log')
+			.setName(t('ignoreExtensions'))
+			.setDesc(t('ignoreExtensionsDesc'))
 			.addTextArea(text => {
 				text.setPlaceholder('tmp\nlog\nbak')
 					.setValue(this.plugin.settings.ignoreExtensions.join('\n'))
@@ -96,8 +97,8 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(ignoreGroup)
-			.setName('忽略路径模式')
-			.setDesc('输入要忽略的路径关键词，每行一个。路径中包含该关键词的文件/文件夹会被忽略。')
+			.setName(t('ignorePatterns'))
+			.setDesc(t('ignorePatternsDesc'))
 			.addTextArea(text => {
 				text.setPlaceholder('backup\narchive')
 					.setValue(this.plugin.settings.ignorePatterns.join('\n'))
@@ -113,8 +114,8 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(ignoreGroup)
-			.setName('忽略隐藏文件')
-			.setDesc('忽略以 . 开头的文件和文件夹（如 .obsidian、.git）')
+			.setName(t('ignoreHidden'))
+			.setDesc(t('ignoreHiddenDesc'))
 			.addToggle(toggle => {
 				toggle.setValue(this.plugin.settings.ignoreHidden)
 					.onChange(async (value) => {
@@ -124,7 +125,7 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 			});
 
 		ignoreGroup.createEl('p', {
-			text: '修改忽略规则后，请点击刷新按钮以生效。',
+			text: t('ignoreNote'),
 			cls: 'setting-item-description',
 		});
 
@@ -132,11 +133,11 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 		// 属性配置
 		// ════════════════════════════════
 		const propGroup = containerEl.createDiv('setting-group');
-		propGroup.createEl('h3', { text: '属性配置', cls: 'setting-group-title' });
+		propGroup.createEl('h3', { text: t('propertyConfig'), cls: 'setting-group-title' });
 
 		new Setting(propGroup)
-			.setName('显示名称属性')
-			.setDesc('读取 frontmatter 中的此属性作为显示名称，未设置时回退到文件名。留空则始终使用文件名。')
+			.setName(t('titleProperty'))
+			.setDesc(t('titlePropertyDesc'))
 			.addText(text => {
 				text.setPlaceholder('title')
 					.setValue(this.plugin.settings.titleProperty)
@@ -147,8 +148,8 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(propGroup)
-			.setName('浮动提示使用显示名称')
-			.setDesc('开启后，tooltip 中使用 title 属性作为名称；关闭则始终显示文件原名。')
+			.setName(t('useTitleInTooltip'))
+			.setDesc(t('useTitleInTooltipDesc'))
 			.addToggle(toggle => {
 				toggle.setValue(this.plugin.settings.useTitleInTooltip)
 					.onChange(async (value) => {
@@ -159,10 +160,10 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 
 		// ── 显示属性列表 ──────────────────────────────
 		const extraSetting = new Setting(propGroup)
-			.setName('显示属性')
-			.setDesc('在矩形和浮动提示中显示的属性。内置属性不可删除，自定义属性读取文件的 frontmatter。')
+			.setName(t('displayProperties'))
+			.setDesc(t('displayPropertiesDesc'))
 			.addButton(btn => {
-				btn.setButtonText('+ 添加属性')
+				btn.setButtonText(t('addProperty'))
 					.setCta()
 					.onClick(async () => {
 						this.plugin.settings.extraProperties.push({ key: '', label: '', showInRect: true, showInTooltip: true });
@@ -176,15 +177,15 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 		// 列标题行
 		const headerRow = listContainer.createDiv('extra-prop-header');
 		headerRow.createDiv('extra-prop-header-spacer'); // 对齐手柄/锁
-		headerRow.createEl('span', { text: '属性', cls: 'extra-prop-header-key' });
-		headerRow.createEl('span', { text: '显示前缀', cls: 'extra-prop-header-label' });
+		headerRow.createEl('span', { text: t('colProperty'), cls: 'extra-prop-header-key' });
+		headerRow.createEl('span', { text: t('colPrefix'), cls: 'extra-prop-header-label' });
 		headerRow.createDiv({ cls: 'extra-prop-spacer' });
 		const rectHeader = headerRow.createDiv('extra-prop-header-icon');
 		setIcon(rectHeader, 'layout-grid');
-		rectHeader.setAttribute('title', '在矩形内显示');
+		rectHeader.setAttribute('title', t('showInRect'));
 		const tipHeader = headerRow.createDiv('extra-prop-header-icon');
 		setIcon(tipHeader, 'message-square');
-		tipHeader.setAttribute('title', '在浮动提示中显示');
+		tipHeader.setAttribute('title', t('showInTooltip'));
 		headerRow.createDiv('extra-prop-header-delete'); // 占位
 
 		// 统一属性列表（内置 + 自定义，均可拖动排序）
@@ -199,7 +200,10 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 
 			// 属性名：内置显示固定文本，自定义可编辑
 			if (prop.builtin) {
-				const builtinNames: Record<string, string> = { wordCount: '字数', fileSize: '体积' };
+				const builtinNames: Record<string, string> = {
+					wordCount: t('builtinWordCount'),
+					fileSize: t('builtinFileSize'),
+				};
 				item.createEl('span', {
 					text: builtinNames[prop.builtin] || prop.builtin,
 					cls: 'extra-prop-name-fixed extra-prop-key'
@@ -207,7 +211,7 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 			} else {
 				const keyInput = item.createEl('input', {
 					cls: 'extra-prop-input extra-prop-key',
-					attr: { type: 'text', placeholder: '属性名', spellcheck: 'false' }
+					attr: { type: 'text', placeholder: t('placeholderKey'), spellcheck: 'false' }
 				});
 				keyInput.value = prop.key;
 				keyInput.addEventListener('change', async (e) => {
@@ -219,7 +223,7 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 			// 显示前缀
 			const labelInput = item.createEl('input', {
 				cls: 'extra-prop-input extra-prop-label',
-				attr: { type: 'text', placeholder: '显示前缀', spellcheck: 'false' }
+				attr: { type: 'text', placeholder: t('placeholderPrefix'), spellcheck: 'false' }
 			});
 			labelInput.value = prop.label;
 			labelInput.addEventListener('change', async (e) => {
@@ -232,7 +236,7 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 			// 矩形显示开关
 			const rectToggle = item.createEl('button', {
 				cls: `extra-prop-toggle ${prop.showInRect ? 'active' : ''}`,
-				attr: { title: '在矩形内显示' }
+				attr: { title: t('showInRect') }
 			});
 			setIcon(rectToggle, 'layout-grid');
 			rectToggle.addEventListener('click', async () => {
@@ -244,7 +248,7 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 			// tooltip 显示开关
 			const tipToggle = item.createEl('button', {
 				cls: `extra-prop-toggle ${prop.showInTooltip ? 'active' : ''}`,
-				attr: { title: '在浮动提示中显示' }
+				attr: { title: t('showInTooltip') }
 			});
 			setIcon(tipToggle, 'message-square');
 			tipToggle.addEventListener('click', async () => {
@@ -255,7 +259,7 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 
 			// 删除按钮（内置属性无删除）
 			if (!prop.builtin) {
-				const removeBtn = item.createEl('button', { cls: 'extra-prop-remove', attr: { title: '删除' } });
+				const removeBtn = item.createEl('button', { cls: 'extra-prop-remove', attr: { title: t('deleteProperty') } });
 				setIcon(removeBtn, 'trash-2');
 				removeBtn.addEventListener('click', async () => {
 					this.plugin.settings.extraProperties.splice(index, 1);
@@ -298,8 +302,8 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 		});
 
 		new Setting(propGroup)
-			.setName('日期属性格式')
-			.setDesc('如果额外属性的值能解析为日期，则按此格式显示。支持 YYYY、MM、DD、HH、mm、ss。')
+			.setName(t('dateFormat'))
+			.setDesc(t('dateFormatDesc'))
 			.addText(text => {
 				text.setPlaceholder('YYYY-MM-DD')
 					.setValue(this.plugin.settings.dateFormat)
@@ -313,14 +317,14 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 		// 交互行为
 		// ════════════════════════════════
 		const behaviorGroup = containerEl.createDiv('setting-group');
-		behaviorGroup.createEl('h3', { text: '交互行为', cls: 'setting-group-title' });
+		behaviorGroup.createEl('h3', { text: t('behavior'), cls: 'setting-group-title' });
 
 		new Setting(behaviorGroup)
-			.setName('默认计数规则')
-			.setDesc('打开视图时默认的显示模式')
+			.setName(t('defaultMode'))
+			.setDesc(t('defaultModeDesc'))
 			.addDropdown(drop => {
-				drop.addOption('size', '按大小')
-					.addOption('count', '按数量')
+				drop.addOption('size', t('modeSizeLabel'))
+					.addOption('count', t('modeCountLabel'))
 					.setValue(this.plugin.settings.defaultMode)
 					.onChange(async (value) => {
 						this.plugin.settings.defaultMode = value as 'size' | 'count';
@@ -329,8 +333,8 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(behaviorGroup)
-			.setName('点击打开文件')
-			.setDesc('点击文件矩形时打开对应文件')
+			.setName(t('clickToOpen'))
+			.setDesc(t('clickToOpenDesc'))
 			.addToggle(toggle => {
 				toggle.setValue(this.plugin.settings.clickToOpen)
 					.onChange(async (value) => {
@@ -342,12 +346,12 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 
 		if (this.plugin.settings.clickToOpen) {
 			new Setting(behaviorGroup)
-				.setName('打开位置')
-				.setDesc('选择文件打开的位置')
+				.setName(t('openLocation'))
+				.setDesc(t('openLocationDesc'))
 				.addDropdown(drop => {
-					drop.addOption('tab', '新标签页')
-						.addOption('split', '分屏')
-						.addOption('window', '新窗口')
+					drop.addOption('tab', t('openInTab'))
+						.addOption('split', t('openInSplit'))
+						.addOption('window', t('openInWindow'))
 						.setValue(this.plugin.settings.openLocation)
 						.onChange(async (value) => {
 							this.plugin.settings.openLocation = value as OpenLocation;
