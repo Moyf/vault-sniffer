@@ -10,7 +10,7 @@ export interface ExtraProperty {
 	label: string;
 	showInRect: boolean;
 	showInTooltip: boolean;
-	builtin?: 'wordCount' | 'fileSize';
+	builtin?: 'wordCount' | 'fileSize' | 'folder';
 }
 
 export interface VaultSnifferSettings {
@@ -40,6 +40,7 @@ export const DEFAULT_SETTINGS: VaultSnifferSettings = {
 	extraProperties: [
 		{ key: '', label: '', showInRect: true, showInTooltip: true, builtin: 'wordCount' as const },
 		{ key: '', label: '', showInRect: true, showInTooltip: true, builtin: 'fileSize' as const },
+		{ key: '', label: '', showInRect: true, showInTooltip: true, builtin: 'folder' as const },
 	],
 	dateFormat: 'YYYY-MM-DD',
 };
@@ -203,6 +204,7 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 				const builtinNames: Record<string, string> = {
 					wordCount: t('builtinWordCount'),
 					fileSize: t('builtinFileSize'),
+					folder: t('builtinFolder'),
 				};
 				item.createEl('span', {
 					text: builtinNames[prop.builtin] || prop.builtin,

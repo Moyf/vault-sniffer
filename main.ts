@@ -94,6 +94,12 @@ export default class VaultSnifferPlugin extends Plugin {
 			delete (this.settings as any).fileSize;
 			await this.saveData(this.settings);
 		}
+		// 迁移：注入内置属性（文件夹）
+		const hasFolder = this.settings.extraProperties.some((p: any) => p.builtin === 'folder');
+		if (!hasFolder) {
+			this.settings.extraProperties.push({ key: '', label: '', showInRect: true, showInTooltip: true, builtin: 'folder' as const });
+			await this.saveData(this.settings);
+		}
 	}
 
 	async saveSettings() {

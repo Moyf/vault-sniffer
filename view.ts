@@ -21,6 +21,7 @@ export class VaultSnifferView extends ItemView {
 	private resizeObserver: ResizeObserver | null = null;
 	private resizeTimer: number | null = null;
 	private searchQuery = '';
+	private currentZoom = 100;
 
 	constructor(leaf: WorkspaceLeaf, fileManager: FileManager, settings: VaultSnifferSettings) {
 		super(leaf);
@@ -130,6 +131,22 @@ export class VaultSnifferView extends ItemView {
 			const action = target.dataset.action || target.closest('[data-action]')?.getAttribute('data-action');
 			if (action === 'deep') this.changeDepth(1);
 			else if (action === 'shallow') this.changeDepth(-1);
+		});
+
+		// 缩放
+		const zoomControl = row2.createDiv('zoom-control');
+		const zoomOutDisabled = this.currentZoom <= 100 ? 'disabled' : '';
+		const zoomInDisabled = this.currentZoom >= 300 ? 'disabled' : '';
+		zoomControl.innerHTML = `
+			<button class="toolbar-btn" data-action="zoom-out" ${zoomOutDisabled}>➖</button>
+			<span class="zoom-indicator">${t('zoomLabel')(this.currentZoom)}</span>
+			<button class="toolbar-btn" data-action="zoom-in" ${zoomInDisabled}>➕</button>
+		`;
+		zoomControl.addEventListener('click', (e) => {
+			const target = e.target as HTMLElement;
+			const action = target.dataset.action || target.closest('[data-action]')?.getAttribute('data-action');
+			if (action === 'zoom-in') this.changeZoom(50);
+			else if (action === 'zoom-out') this.changeZoom(-50);
 		});
 
 		// 统计方式
@@ -353,9 +370,17 @@ export class VaultSnifferView extends ItemView {
 
 		// 等 DOM 布局完成后计算实际尺寸
 		const width = chartContainer.clientWidth;
-		const height = chartContainer.clientHeight;
+		const baseHeight = chartContainer.clientHeight;
+		const height = Math.round(baseHeight * this.currentZoom / 100);
 
-		if (width <= 0 || height <= 0) return;
+		if (width <= 0 || baseHeight <= 0) return;
+
+		// 缩放时允许纵向滚动
+		if (this.currentZoom > 100) {
+			chartContainer.style.overflowY = 'auto';
+		} else {
+			chartContainer.style.overflowY = 'hidden';
+		}
 
 		// 为 D3 创建数据（filterByDepth 已将目标深度节点变为叶节点）
 		const hierarchy = d3.hierarchy(data)
@@ -364,7 +389,18 @@ export class VaultSnifferView extends ItemView {
 				: 0)
 			.sort((a: any, b: any) => (b.value || 0) - (a.value || 0));
 
+		// 自定义 tile：squarify 优先，但如果产生了过窄的矩形则回退到 slice（水平条带）
+		const MIN_RECT_WIDTH = 120;
+		const customTile = (node: any, x0: number, y0: number, x1: number, y1: number) => {
+			d3.treemapSquarify(node, x0, y0, x1, y1);
+			const containerWidth = x1 - x0;
+			if (containerWidth >= MIN_RECT_WIDTH && node.children?.some((c: any) => (c.x1 - c.x0) < MIN_RECT_WIDTH)) {
+				d3.treemapSlice(node, x0, y0, x1, y1);
+			}
+		};
+
 		const treemap = d3.treemap<any>()
+			.tile(customTile)
 			.size([width, height])
 			.padding(2)
 			.round(true);
@@ -466,6 +502,9 @@ export class VaultSnifferView extends ItemView {
 						if (d.data.wordCount != null) text = this.formatWordCount(d.data.wordCount);
 					} else if (prop.builtin === 'fileSize') {
 						text = this.formatSize(d.data.size);
+					} else if (prop.builtin === 'folder') {
+						const parts = d.data.path.split('/');
+						text = parts.length > 1 ? parts[parts.length - 2] : '/';
 					} else if (d.data.extraProps) {
 						const val = d.data.extraProps[prop.key];
 						if (val) text = this.formatPropValue(val);
@@ -524,6 +563,10 @@ export class VaultSnifferView extends ItemView {
 							if (d.data.wordCount != null) infoTokens.push(prefix + this.formatWordCount(d.data.wordCount));
 						} else if (prop.builtin === 'fileSize') {
 							infoTokens.push(prefix + size);
+						} else if (prop.builtin === 'folder') {
+							const parts = d.data.path.split('/');
+							const folderName = parts.length > 1 ? parts[parts.length - 2] : '/';
+							infoTokens.push(prefix + folderName);
 						} else if (d.data.extraProps) {
 							const val = d.data.extraProps[prop.key];
 							if (val) propsHtml += `<br/><span style="opacity:0.75">${this.escapeHtml(prop.key)}: ${this.escapeHtml(String(val))}</span>`;
@@ -688,6 +731,37 @@ export class VaultSnifferView extends ItemView {
 			} else {
 				shallowBtn.removeAttribute('disabled');
 			}
+		}
+	}
+
+	private changeZoom(delta: number) {
+		if (this.isLoading) return;
+		const newZoom = this.currentZoom + delta;
+		if (newZoom >= 100 && newZoom <= 300) {
+			this.currentZoom = newZoom;
+			this.updateZoomIndicator();
+			this.updateZoomButtons();
+			this.renderChart();
+		}
+	}
+
+	private updateZoomIndicator() {
+		const indicator = this.viewContainer?.querySelector('.zoom-indicator');
+		if (indicator) {
+			indicator.textContent = t('zoomLabel')(this.currentZoom);
+		}
+	}
+
+	private updateZoomButtons() {
+		const zoomOutBtn = this.viewContainer?.querySelector('[data-action="zoom-out"]') as HTMLElement;
+		const zoomInBtn = this.viewContainer?.querySelector('[data-action="zoom-in"]') as HTMLElement;
+		if (zoomOutBtn) {
+			if (this.currentZoom <= 100) zoomOutBtn.setAttribute('disabled', 'true');
+			else zoomOutBtn.removeAttribute('disabled');
+		}
+		if (zoomInBtn) {
+			if (this.currentZoom >= 300) zoomInBtn.setAttribute('disabled', 'true');
+			else zoomInBtn.removeAttribute('disabled');
 		}
 	}
 
