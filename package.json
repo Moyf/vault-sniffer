@@ -1,6 +1,6 @@
 {
 	"name": "vault-sniffer",
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"description": "Visualize your vault's file distribution with an interactive treemap. Supports drill-down navigation, file size/count modes, search, and customizable display properties.",
 	"main": "main.js",
 	"scripts": {
