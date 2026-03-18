@@ -257,6 +257,24 @@ export class FileManager {
 		};
 	}
 
+	// 只保留文件节点（过滤掉文件夹）
+	filterFilesOnly(node: FileNode): FileNode | null {
+		if (node.type === 'file') return { ...node };
+
+		const filteredChildren = (node.children || [])
+			.filter(child => child.type === 'file')
+			.map(child => ({ ...child }));
+
+		if (filteredChildren.length === 0) return null;
+
+		return {
+			...node,
+			children: filteredChildren,
+			size: filteredChildren.reduce((sum, child) => sum + child.size, 0),
+			count: filteredChildren.reduce((sum, child) => sum + child.count, 0)
+		};
+	}
+
 	// 过滤掉指定扩展名的文件（反向过滤）
 	filterByNotExtension(node: FileNode, excludeExtensions: string[]): FileNode | null {
 		if (node.type === 'file') {

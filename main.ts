@@ -26,7 +26,7 @@ export default class VaultSnifferPlugin extends Plugin {
 		// Register view
 		this.registerView(
 			VIEW_TYPE,
-			(leaf) => new VaultSnifferView(leaf, this.fileManager, this.settings)
+			(leaf) => new VaultSnifferView(leaf, this.fileManager, this.settings, this.saveSettings.bind(this))
 		);
 
 		// This adds a ribbon icon

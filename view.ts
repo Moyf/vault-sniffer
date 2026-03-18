@@ -10,6 +10,7 @@ const VIEW_TYPE = 'vault-sniffer-view';
 export class VaultSnifferView extends ItemView {
 	private fileManager: FileManager;
 	private settings: VaultSnifferSettings;
+	private onSaveSettings: () => Promise<void>;
 	private currentPath = '/';
 	private currentFilterMode: 'all' | 'notes' | 'attachments' = 'all';
 	private currentDepth = 1;
@@ -23,11 +24,12 @@ export class VaultSnifferView extends ItemView {
 	private searchQuery = '';
 	private currentZoom = 100;
 
-	constructor(leaf: WorkspaceLeaf, fileManager: FileManager, settings: VaultSnifferSettings) {
+	constructor(leaf: WorkspaceLeaf, fileManager: FileManager, settings: VaultSnifferSettings, saveSettings: () => Promise<void>) {
 		super(leaf);
 		this.fileManager = fileManager;
 		this.settings = settings;
 		this.displayMode = settings.defaultMode;
+		this.onSaveSettings = saveSettings;
 	}
 
 	getViewType() {
@@ -89,13 +91,13 @@ export class VaultSnifferView extends ItemView {
 		const row1 = toolbar.createDiv('toolbar-row');
 
 		const pathGroup = row1.createDiv('toolbar-left');
+		const breadcrumb = pathGroup.createDiv('breadcrumb');
+		this.updateBreadcrumb(breadcrumb);
 		if (this.currentPath !== '/') {
 			const upBtn = pathGroup.createEl('button', { cls: 'toolbar-btn', attr: { title: t('goUp') } });
 			upBtn.textContent = '⬆️';
 			upBtn.addEventListener('click', () => this.navigateUp());
 		}
-		const breadcrumb = pathGroup.createDiv('breadcrumb');
-		this.updateBreadcrumb(breadcrumb);
 
 		const rightGroup = row1.createDiv('toolbar-right');
 		const searchInput = rightGroup.createEl('input', {
@@ -103,8 +105,18 @@ export class VaultSnifferView extends ItemView {
 			attr: { type: 'text', placeholder: t('searchPlaceholder'), spellcheck: 'false' }
 		});
 		searchInput.value = this.searchQuery;
+		const clearSearchBtn = rightGroup.createEl('button', { cls: 'toolbar-btn search-clear-btn', attr: { title: t('clearSearch') } });
+		clearSearchBtn.textContent = '✕';
+		clearSearchBtn.style.display = this.searchQuery ? '' : 'none';
 		searchInput.addEventListener('input', (e) => {
 			this.searchQuery = (e.target as HTMLInputElement).value;
+			clearSearchBtn.style.display = this.searchQuery ? '' : 'none';
+			this.applySearchHighlight();
+		});
+		clearSearchBtn.addEventListener('click', () => {
+			this.searchQuery = '';
+			searchInput.value = '';
+			clearSearchBtn.style.display = 'none';
 			this.applySearchHighlight();
 		});
 		const refreshBtn = rightGroup.createEl('button', { cls: 'toolbar-btn', attr: { title: t('refresh') } });
@@ -160,9 +172,13 @@ export class VaultSnifferView extends ItemView {
 			if (target.classList.contains('mode-btn')) this.changeMode(target.dataset.mode as DisplayMode);
 		});
 
-		// 排序（仅按数量模式可见）
+		// 排序
 		const sortControl = row2.createDiv('sort-control');
-		if (this.displayMode === 'count') {
+		sortControl.createEl('span', { text: t('sortLabel'), cls: 'sort-label' });
+		if (this.displayMode === 'size') {
+			const sortSelect = sortControl.createEl('select', { cls: 'sort-select', attr: { disabled: 'true' } });
+			sortSelect.createEl('option', { text: t('sortSizeDefault') });
+		} else {
 			const sortSelect = sortControl.createEl('select', { cls: 'sort-select' });
 			const sortOptions: { value: FileSortRule; label: string }[] = [
 				{ value: 'default', label: t('sortDefault') },
@@ -179,8 +195,9 @@ export class VaultSnifferView extends ItemView {
 				sortSelect.createEl('option', { text: opt.label, attr: { value: opt.value } });
 			}
 			sortSelect.value = this.settings.fileSortRule;
-			sortSelect.addEventListener('change', () => {
+			sortSelect.addEventListener('change', async () => {
 				this.settings.fileSortRule = sortSelect.value as FileSortRule;
+				await this.onSaveSettings();
 				this.renderChart();
 			});
 		}
@@ -523,6 +540,9 @@ export class VaultSnifferView extends ItemView {
 						if (d.data.wordCount != null) text = this.formatWordCount(d.data.wordCount);
 					} else if (prop.builtin === 'fileSize') {
 						text = this.formatSize(d.data.size);
+					} else if (prop.builtin === 'folder') {
+						const parts = d.data.path.split('/');
+						if (parts.length >= 2) text = parts[parts.length - 2];
 					} else if (d.data.extraProps) {
 						const val = d.data.extraProps[prop.key];
 						if (val) text = this.formatPropValue(val);
@@ -580,8 +600,9 @@ export class VaultSnifferView extends ItemView {
 						if (prop.builtin === 'wordCount') {
 							if (d.data.wordCount != null) infoTokens.push(prefix + this.formatWordCount(d.data.wordCount));
 						} else if (prop.builtin === 'fileSize') {
-							infoTokens.push(prefix + size);
-						} else if (d.data.extraProps) {
+							infoTokens.push(prefix + size);					} else if (prop.builtin === 'folder') {
+						const parts = d.data.path.split('/');
+						if (parts.length >= 2) infoTokens.push(prefix + parts[parts.length - 2]);						} else if (d.data.extraProps) {
 							const val = d.data.extraProps[prop.key];
 							if (val) propsHtml += `<br/><span style="opacity:0.75">${this.escapeHtml(prop.key)}: ${this.escapeHtml(String(val))}</span>`;
 						}
