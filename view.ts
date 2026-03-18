@@ -211,6 +211,21 @@ export class VaultSnifferView extends ItemView {
 			const target = e.target as HTMLElement;
 			if (target.classList.contains('filter-btn')) this.applyFilter(target);
 		});
+
+		// 仅文件
+		const filesOnlyBtn = row2.createEl('button', {
+			cls: `toolbar-btn files-only-btn${this.showFilesOnly ? ' active' : ''}`,
+			attr: { title: this.showFilesOnly ? t('filesOnlyTitleOn') : t('filesOnlyTitleOff') }
+		});
+		filesOnlyBtn.textContent = this.showFilesOnly ? t('filesOnlyOn') : t('filesOnlyOff');
+		filesOnlyBtn.addEventListener('click', () => {
+			if (filesOnlyBtn.hasAttribute('disabled')) return;
+			this.showFilesOnly = !this.showFilesOnly;
+			filesOnlyBtn.classList.toggle('active', this.showFilesOnly);
+			filesOnlyBtn.textContent = this.showFilesOnly ? t('filesOnlyOn') : t('filesOnlyOff');
+			filesOnlyBtn.title = this.showFilesOnly ? t('filesOnlyTitleOn') : t('filesOnlyTitleOff');
+			this.renderChart();
+		});
 	}
 
 	private async refresh() {
@@ -242,6 +257,15 @@ export class VaultSnifferView extends ItemView {
 			// 应用深度过滤
 			data = this.fileManager.filterByDepth(data, data.depth + this.currentDepth);
 			if (!data) return;
+
+			// 仅文件模式
+			const hasDirectFiles = (data.children || []).some((c: any) => c.type === 'file');
+			this.updateFilesOnlyBtn(hasDirectFiles);
+			const effectiveFilesOnly = this.showFilesOnly && hasDirectFiles;
+			if (effectiveFilesOnly) {
+				data = this.fileManager.filterFilesOnly(data);
+				if (!data) return;
+			}
 
 			this.renderChartWithData(data);
 		} finally {
@@ -379,6 +403,15 @@ export class VaultSnifferView extends ItemView {
 			const oldToolbar = this.viewContainer?.querySelector('.toolbar');
 			if (oldToolbar) oldToolbar.remove();
 			this.renderToolbar();
+
+			// 仅文件模式
+			const hasDirectFiles = (data.children || []).some((c: any) => c.type === 'file');
+			this.updateFilesOnlyBtn(hasDirectFiles);
+			const effectiveFilesOnly = this.showFilesOnly && hasDirectFiles;
+			if (effectiveFilesOnly) {
+				data = this.fileManager.filterFilesOnly(data);
+				if (!data) return;
+			}
 
 			this.renderChartWithData(data);
 		} finally {
@@ -530,20 +563,22 @@ export class VaultSnifferView extends ItemView {
 						.style('opacity', '0.7')
 						.style('pointer-events', 'none');
 				}
-			} else if (d.data.extension === 'md') {
-				// Markdown 笔记：按 extraProperties 配置显示
+			} else {
+				// 所有文件：按 extraProperties 配置显示
 				for (const prop of extraProps) {
 					if (!prop.showInRect) continue;
 					if (yOffset + 2 > rectHeight || rectWidth < 50) break;
 					let text: string | null = null;
 					if (prop.builtin === 'wordCount') {
-						if (d.data.wordCount != null) text = this.formatWordCount(d.data.wordCount);
+						// 只对 md 文件生效
+						if (d.data.extension === 'md' && d.data.wordCount != null) text = this.formatWordCount(d.data.wordCount);
 					} else if (prop.builtin === 'fileSize') {
 						text = this.formatSize(d.data.size);
 					} else if (prop.builtin === 'folder') {
 						const parts = d.data.path.split('/');
 						if (parts.length >= 2) text = parts[parts.length - 2];
-					} else if (d.data.extraProps) {
+					} else if (d.data.extension === 'md' && d.data.extraProps) {
+						// 自定义 frontmatter 只对 md 文件生效
 						const val = d.data.extraProps[prop.key];
 						if (val) text = this.formatPropValue(val);
 					}
@@ -590,19 +625,21 @@ export class VaultSnifferView extends ItemView {
 						.html(`${icon} <strong>${this.escapeHtml(tooltipName)}</strong><br/>${size}<br/>${t('fileCount')(d.data.count)}`)
 						.style('left', (event.pageX + 10) + 'px')
 						.style('top', (event.pageY + 10) + 'px');
-				} else if (d.data.extension === 'md') {
-					// Markdown 笔记：按 extraProperties 配置显示
+				} else {
+					// 所有文件：按 extraProperties 配置显示
 					const infoTokens: string[] = [];
 					let propsHtml = '';
 					for (const prop of extraProps) {
 						if (!prop.showInTooltip) continue;
 						const prefix = prop.label || '';
 						if (prop.builtin === 'wordCount') {
-							if (d.data.wordCount != null) infoTokens.push(prefix + this.formatWordCount(d.data.wordCount));
+							if (d.data.extension === 'md' && d.data.wordCount != null) infoTokens.push(prefix + this.formatWordCount(d.data.wordCount));
 						} else if (prop.builtin === 'fileSize') {
-							infoTokens.push(prefix + size);					} else if (prop.builtin === 'folder') {
-						const parts = d.data.path.split('/');
-						if (parts.length >= 2) infoTokens.push(prefix + parts[parts.length - 2]);						} else if (d.data.extraProps) {
+							infoTokens.push(prefix + size);
+						} else if (prop.builtin === 'folder') {
+							const parts = d.data.path.split('/');
+							if (parts.length >= 2) infoTokens.push(prefix + parts[parts.length - 2]);
+						} else if (d.data.extension === 'md' && d.data.extraProps) {
 							const val = d.data.extraProps[prop.key];
 							if (val) propsHtml += `<br/><span style="opacity:0.75">${this.escapeHtml(prop.key)}: ${this.escapeHtml(String(val))}</span>`;
 						}
@@ -610,12 +647,6 @@ export class VaultSnifferView extends ItemView {
 					const infoLine = infoTokens.join(' · ');
 					this.tooltip
 						.html(`${icon} <strong>${this.escapeHtml(tooltipName)}</strong>${infoLine ? '<br/>' + infoLine : ''}${propsHtml}`)
-						.style('left', (event.pageX + 10) + 'px')
-						.style('top', (event.pageY + 10) + 'px');
-				} else {
-					// 其他文件：只显示名称和体积
-					this.tooltip
-						.html(`${icon} <strong>${this.escapeHtml(tooltipName)}</strong><br/>${size}`)
 						.style('left', (event.pageX + 10) + 'px')
 						.style('top', (event.pageY + 10) + 'px');
 				}
@@ -686,6 +717,23 @@ export class VaultSnifferView extends ItemView {
 		const mode = btn.dataset.filter as 'all' | 'notes' | 'attachments';
 		this.currentFilterMode = mode || 'all';
 		this.renderChart();
+	}
+
+	private updateFilesOnlyBtn(hasFiles: boolean) {
+		const btn = this.viewContainer?.querySelector('.files-only-btn') as HTMLButtonElement | null;
+		if (!btn) return;
+		if (hasFiles) {
+			btn.removeAttribute('disabled');
+		} else {
+			btn.setAttribute('disabled', 'true');
+			// 如果当前没有文件，强制关闭仅文件模式
+			if (this.showFilesOnly) {
+				this.showFilesOnly = false;
+				btn.classList.remove('active');
+				btn.textContent = t('filesOnlyOff');
+				btn.title = t('filesOnlyTitleOff');
+			}
+		}
 	}
 
 	private showLoading() {
