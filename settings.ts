@@ -4,6 +4,7 @@ import { t } from './i18n';
 
 export type OpenLocation = 'tab' | 'split' | 'window';
 export type DisplayMode = 'size' | 'count';
+export type FileSortRule = 'default' | 'name-asc' | 'name-desc' | 'ctime-desc' | 'ctime-asc' | 'mtime-desc' | 'mtime-asc' | 'size-desc' | 'size-asc';
 
 export interface ExtraProperty {
 	key: string;
@@ -25,6 +26,9 @@ export interface VaultSnifferSettings {
 	useTitleInTooltip: boolean;
 	extraProperties: ExtraProperty[];
 	dateFormat: string;
+	fileSortRule: FileSortRule;
+	ctimeProperty: string;
+	mtimeProperty: string;
 }
 
 export const DEFAULT_SETTINGS: VaultSnifferSettings = {
@@ -43,6 +47,9 @@ export const DEFAULT_SETTINGS: VaultSnifferSettings = {
 		{ key: '', label: '', showInRect: true, showInTooltip: true, builtin: 'folder' as const },
 	],
 	dateFormat: 'YYYY-MM-DD',
+	fileSortRule: 'default',
+	ctimeProperty: '',
+	mtimeProperty: '',
 };
 
 export class VaultSnifferSettingTab extends PluginSettingTab {
@@ -314,6 +321,59 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					});
 			});
+
+		// ════════════════════════════════
+		// 排序
+		// ════════════════════════════════
+		const sortGroup = containerEl.createDiv('setting-group');
+		sortGroup.createEl('h3', { text: t('sortGroup'), cls: 'setting-group-title' });
+
+		new Setting(sortGroup)
+			.setName(t('fileSortRule'))
+			.setDesc(t('fileSortRuleDesc'))
+			.addDropdown(drop => {
+				drop.addOption('default', t('sortDefault'))
+					.addOption('name-asc', t('sortNameAsc'))
+					.addOption('name-desc', t('sortNameDesc'))
+					.addOption('ctime-desc', t('sortCtimeDesc'))
+					.addOption('ctime-asc', t('sortCtimeAsc'))
+					.addOption('mtime-desc', t('sortMtimeDesc'))
+					.addOption('mtime-asc', t('sortMtimeAsc'))
+					.addOption('size-desc', t('sortSizeDesc'))
+					.addOption('size-asc', t('sortSizeAsc'))
+					.setValue(this.plugin.settings.fileSortRule)
+					.onChange(async (value) => {
+						this.plugin.settings.fileSortRule = value as FileSortRule;
+						await this.plugin.saveSettings();
+						this.display();
+					});
+			});
+
+		if (this.plugin.settings.fileSortRule.startsWith('ctime') || this.plugin.settings.fileSortRule.startsWith('mtime')) {
+			new Setting(sortGroup)
+				.setName(t('ctimeProperty'))
+				.setDesc(t('ctimePropertyDesc'))
+				.addText(text => {
+					text.setPlaceholder('created_at')
+						.setValue(this.plugin.settings.ctimeProperty)
+						.onChange(async (value) => {
+							this.plugin.settings.ctimeProperty = value.trim();
+							await this.plugin.saveSettings();
+						});
+				});
+
+			new Setting(sortGroup)
+				.setName(t('mtimeProperty'))
+				.setDesc(t('mtimePropertyDesc'))
+				.addText(text => {
+					text.setPlaceholder('modified_at')
+						.setValue(this.plugin.settings.mtimeProperty)
+						.onChange(async (value) => {
+							this.plugin.settings.mtimeProperty = value.trim();
+							await this.plugin.saveSettings();
+						});
+				});
+		}
 
 		// ════════════════════════════════
 		// 交互行为

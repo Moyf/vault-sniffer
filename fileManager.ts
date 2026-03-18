@@ -9,6 +9,8 @@ export interface FileNode {
 	size: number;
 	count: number;
 	wordCount?: number;
+	ctime?: number;
+	mtime?: number;
 	type: 'file' | 'folder';
 	extension?: string;
 	children?: FileNode[];
@@ -103,6 +105,7 @@ export class FileManager {
 				const displayName = this.getDisplayName(child);
 				const extraProps = this.getExtraProps(child);
 				const wordCount = await this.getWordCount(child);
+				const { ctime, mtime } = this.getFileTimes(child);
 				return {
 					name: child.name,
 					displayName,
@@ -111,6 +114,8 @@ export class FileManager {
 					size: await this.getFileSize(child),
 					count: 1,
 					wordCount,
+					ctime,
+					mtime,
 					type: 'file' as const,
 					extension: child.extension,
 					depth: node.depth + 1
@@ -181,6 +186,26 @@ export class FileManager {
 			}
 		}
 		return hasAny ? result : undefined;
+	}
+
+	private getFileTimes(file: TFile): { ctime: number; mtime: number } {
+		let ctime = file.stat.ctime;
+		let mtime = file.stat.mtime;
+		if (this.settings?.ctimeProperty || this.settings?.mtimeProperty) {
+			const cache: CachedMetadata | null = this.app.metadataCache.getFileCache(file);
+			const fm = cache?.frontmatter;
+			if (fm) {
+				if (this.settings.ctimeProperty) {
+					const val = fm[this.settings.ctimeProperty];
+					if (val) { const ts = new Date(val).getTime(); if (!isNaN(ts)) ctime = ts; }
+				}
+				if (this.settings.mtimeProperty) {
+					const val = fm[this.settings.mtimeProperty];
+					if (val) { const ts = new Date(val).getTime(); if (!isNaN(ts)) mtime = ts; }
+				}
+			}
+		}
+		return { ctime, mtime };
 	}
 
 	// 过滤功能

@@ -38,6 +38,24 @@ const zh = {
 	dateFormat: '日期属性格式',
 	dateFormatDesc: '如果额外属性的值能解析为日期，则按此格式显示。支持 YYYY、MM、DD、HH、mm、ss。',
 
+	// 排序
+	sortGroup: '排序',
+	fileSortRule: '文件排序规则',
+	fileSortRuleDesc: '仅在「按数量」模式下对文件生效，文件夹始终按数量/体积排序。',
+	sortDefault: '默认（按数量大小）',
+	sortNameAsc: '文件名 A → Z',
+	sortNameDesc: '文件名 Z → A',
+	sortCtimeDesc: '创建时间 新 → 旧',
+	sortCtimeAsc: '创建时间 旧 → 新',
+	sortMtimeDesc: '修改时间 新 → 旧',
+	sortMtimeAsc: '修改时间 旧 → 新',
+	sortSizeDesc: '体积 大 → 小',
+	sortSizeAsc: '体积 小 → 大',
+	ctimeProperty: '创建时间属性覆盖',
+	ctimePropertyDesc: '用 frontmatter 中的此属性替代文件创建时间，留空则使用系统 ctime。',
+	mtimeProperty: '修改时间属性覆盖',
+	mtimePropertyDesc: '用 frontmatter 中的此属性替代文件修改时间，留空则使用系统 mtime。',
+
 	// 交互行为
 	defaultMode: '默认计数规则',
 	defaultModeDesc: '打开视图时默认的显示模式',
@@ -118,6 +136,24 @@ const en: typeof zh = {
 	placeholderPrefix: 'Prefix',
 	dateFormat: 'Date Format',
 	dateFormatDesc: 'If a property value can be parsed as a date, display it in this format. Supports YYYY, MM, DD, HH, mm, ss.',
+
+	// Sort
+	sortGroup: 'Sorting',
+	fileSortRule: 'File Sort Rule',
+	fileSortRuleDesc: 'Only applies to files in "By count" mode. Folders are always sorted by count/size.',
+	sortDefault: 'Default (by count)',
+	sortNameAsc: 'Name A → Z',
+	sortNameDesc: 'Name Z → A',
+	sortCtimeDesc: 'Created newest first',
+	sortCtimeAsc: 'Created oldest first',
+	sortMtimeDesc: 'Modified newest first',
+	sortMtimeAsc: 'Modified oldest first',
+	sortSizeDesc: 'Size largest first',
+	sortSizeAsc: 'Size smallest first',
+	ctimeProperty: 'Created Time Property Override',
+	ctimePropertyDesc: 'Use this frontmatter property instead of file ctime. Leave empty to use system ctime.',
+	mtimeProperty: 'Modified Time Property Override',
+	mtimePropertyDesc: 'Use this frontmatter property instead of file mtime. Leave empty to use system mtime.',
 
 	// Behavior
 	defaultMode: 'Default Mode',

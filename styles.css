@@ -148,7 +148,7 @@
 }
 
 .vault-sniffer-view .mode-btn {
-    padding: 2px 8px;
+    padding: 2px 5px;
     border: 1px solid var(--background-modifier-border);
     border-radius: 4px;
     background: var(--background-secondary);
@@ -164,6 +164,26 @@
 .vault-sniffer-view .mode-btn.active {
     background: var(--interactive-accent);
     color: var(--text-on-accent);
+    border-color: var(--interactive-accent);
+}
+
+.vault-sniffer-view .sort-control {
+    flex-shrink: 0;
+}
+
+.vault-sniffer-view .sort-select {
+    padding: 2px 4px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    font-size: 11px;
+    cursor: pointer;
+    outline: none;
+    max-width: 160px;
+}
+
+.vault-sniffer-view .sort-select:focus {
     border-color: var(--interactive-accent);
 }
 

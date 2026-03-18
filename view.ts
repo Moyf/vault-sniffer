@@ -1,8 +1,8 @@
 // @ts-nocheck
-import { ItemView, WorkspaceLeaf, TFile, TFolder, FuzzySuggestModal } from 'obsidian';
+import { ItemView, WorkspaceLeaf, TFile, TFolder, FuzzySuggestModal, prepareFuzzySearch } from 'obsidian';
 import * as d3 from 'd3';
 import { FileManager, FileNode } from './fileManager';
-import type { VaultSnifferSettings, DisplayMode, ExtraProperty } from './settings';
+import type { VaultSnifferSettings, DisplayMode, ExtraProperty, FileSortRule } from './settings';
 import { t } from './i18n';
 
 const VIEW_TYPE = 'vault-sniffer-view';
@@ -104,7 +104,7 @@ export class VaultSnifferView extends ItemView {
 		});
 		searchInput.value = this.searchQuery;
 		searchInput.addEventListener('input', (e) => {
-			this.searchQuery = (e.target as HTMLInputElement).value.toLowerCase();
+			this.searchQuery = (e.target as HTMLInputElement).value;
 			this.applySearchHighlight();
 		});
 		const refreshBtn = rightGroup.createEl('button', { cls: 'toolbar-btn', attr: { title: t('refresh') } });
@@ -159,6 +159,31 @@ export class VaultSnifferView extends ItemView {
 			const target = e.target as HTMLElement;
 			if (target.classList.contains('mode-btn')) this.changeMode(target.dataset.mode as DisplayMode);
 		});
+
+		// 排序（仅按数量模式可见）
+		const sortControl = row2.createDiv('sort-control');
+		if (this.displayMode === 'count') {
+			const sortSelect = sortControl.createEl('select', { cls: 'sort-select' });
+			const sortOptions: { value: FileSortRule; label: string }[] = [
+				{ value: 'default', label: t('sortDefault') },
+				{ value: 'name-asc', label: t('sortNameAsc') },
+				{ value: 'name-desc', label: t('sortNameDesc') },
+				{ value: 'ctime-desc', label: t('sortCtimeDesc') },
+				{ value: 'ctime-asc', label: t('sortCtimeAsc') },
+				{ value: 'mtime-desc', label: t('sortMtimeDesc') },
+				{ value: 'mtime-asc', label: t('sortMtimeAsc') },
+				{ value: 'size-desc', label: t('sortSizeDesc') },
+				{ value: 'size-asc', label: t('sortSizeAsc') },
+			];
+			for (const opt of sortOptions) {
+				sortSelect.createEl('option', { text: opt.label, attr: { value: opt.value } });
+			}
+			sortSelect.value = this.settings.fileSortRule;
+			sortSelect.addEventListener('change', () => {
+				this.settings.fileSortRule = sortSelect.value as FileSortRule;
+				this.renderChart();
+			});
+		}
 
 		// 显示内容
 		const filterGroup = row2.createDiv('filter-group');
@@ -387,20 +412,16 @@ export class VaultSnifferView extends ItemView {
 			.sum((d: any) => (!d.children || d.children.length === 0)
 				? (this.displayMode === 'size' ? d.size : d.count)
 				: 0)
-			.sort((a: any, b: any) => (b.value || 0) - (a.value || 0));
-
-		// 自定义 tile：squarify 优先，但如果产生了过窄的矩形则回退到 slice（水平条带）
-		const MIN_RECT_WIDTH = 120;
-		const customTile = (node: any, x0: number, y0: number, x1: number, y1: number) => {
-			d3.treemapSquarify(node, x0, y0, x1, y1);
-			const containerWidth = x1 - x0;
-			if (containerWidth >= MIN_RECT_WIDTH && node.children?.some((c: any) => (c.x1 - c.x0) < MIN_RECT_WIDTH)) {
-				d3.treemapSlice(node, x0, y0, x1, y1);
-			}
-		};
+			.sort((a: any, b: any) => {
+				if (this.displayMode === 'size') return (b.value || 0) - (a.value || 0);
+				const aIsFile = a.data.type === 'file';
+				const bIsFile = b.data.type === 'file';
+				if (!aIsFile || !bIsFile) return (b.value || 0) - (a.value || 0);
+				return this.compareBySort(a.data, b.data);
+			});
 
 		const treemap = d3.treemap<any>()
-			.tile(customTile)
+			.tile(d3.treemapSquarify.ratio(4))
 			.size([width, height])
 			.padding(2)
 			.round(true);
@@ -502,9 +523,6 @@ export class VaultSnifferView extends ItemView {
 						if (d.data.wordCount != null) text = this.formatWordCount(d.data.wordCount);
 					} else if (prop.builtin === 'fileSize') {
 						text = this.formatSize(d.data.size);
-					} else if (prop.builtin === 'folder') {
-						const parts = d.data.path.split('/');
-						text = parts.length > 1 ? parts[parts.length - 2] : '/';
 					} else if (d.data.extraProps) {
 						const val = d.data.extraProps[prop.key];
 						if (val) text = this.formatPropValue(val);
@@ -563,10 +581,6 @@ export class VaultSnifferView extends ItemView {
 							if (d.data.wordCount != null) infoTokens.push(prefix + this.formatWordCount(d.data.wordCount));
 						} else if (prop.builtin === 'fileSize') {
 							infoTokens.push(prefix + size);
-						} else if (prop.builtin === 'folder') {
-							const parts = d.data.path.split('/');
-							const folderName = parts.length > 1 ? parts[parts.length - 2] : '/';
-							infoTokens.push(prefix + folderName);
 						} else if (d.data.extraProps) {
 							const val = d.data.extraProps[prop.key];
 							if (val) propsHtml += `<br/><span style="opacity:0.75">${this.escapeHtml(prop.key)}: ${this.escapeHtml(String(val))}</span>`;
@@ -597,20 +611,23 @@ export class VaultSnifferView extends ItemView {
 		const svg = this.viewContainer?.querySelector('.treemap-chart svg');
 		if (!svg) return;
 
-		const query = this.searchQuery;
+		const query = this.searchQuery.trim();
+		const keywords = query ? query.split(/\s+/).filter(k => k) : [];
+		const fuzzyMatchers = keywords.map(k => prepareFuzzySearch(k));
+
 		d3.select(svg).selectAll('g').each(function(d: any) {
 			const g = d3.select(this);
 			const rect = g.select('rect');
 			if (!rect.node()) return;
 
-			if (!query) {
+			if (fuzzyMatchers.length === 0) {
 				rect.style('opacity', null);
 				return;
 			}
 
-			const name = (d?.data?.displayName || d?.data?.name || '').toLowerCase();
-			const path = (d?.data?.path || '').toLowerCase();
-			const match = name.includes(query) || path.includes(query);
+			const name = d?.data?.displayName || d?.data?.name || '';
+			const path = d?.data?.path || '';
+			const match = fuzzyMatchers.every(fn => fn(name) || fn(path));
 			rect.style('opacity', match ? '1' : '0.15');
 		});
 	}
@@ -765,19 +782,30 @@ export class VaultSnifferView extends ItemView {
 		}
 	}
 
+	private compareBySort(a: FileNode, b: FileNode): number {
+		const rule = this.settings.fileSortRule;
+		switch (rule) {
+			case 'name-asc': return a.name.localeCompare(b.name);
+			case 'name-desc': return b.name.localeCompare(a.name);
+			case 'ctime-desc': return (b.ctime || 0) - (a.ctime || 0);
+			case 'ctime-asc': return (a.ctime || 0) - (b.ctime || 0);
+			case 'mtime-desc': return (b.mtime || 0) - (a.mtime || 0);
+			case 'mtime-asc': return (a.mtime || 0) - (b.mtime || 0);
+			case 'size-desc': return (b.size || 0) - (a.size || 0);
+			case 'size-asc': return (a.size || 0) - (b.size || 0);
+			default: return (b.count || 0) - (a.count || 0);
+		}
+	}
+
 	private changeMode(mode: DisplayMode) {
 		if (this.displayMode === mode) return;
 
 		this.displayMode = mode;
 
-		// 更新按钮状态
-		const buttons = this.viewContainer?.querySelectorAll('.mode-btn');
-		buttons?.forEach(b => {
-			b.classList.remove('active');
-			if (b.dataset.mode === mode) {
-				b.classList.add('active');
-			}
-		});
+		// 重建工具栏以切换排序控件的可见性
+		const oldToolbar = this.viewContainer?.querySelector('.toolbar');
+		if (oldToolbar) oldToolbar.remove();
+		this.renderToolbar();
 
 		this.renderChart();
 	}
