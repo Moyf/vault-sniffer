@@ -74,6 +74,7 @@ const zh = {
 	goToFolder: '跳转文件夹',
 	goToFolderDesc: '选择一个文件夹，快速跳转到该位置',
 	noFolders: '没有找到文件夹',
+	openVaultSniffer: '分析当前库',
 
 	// 视图工具栏
 	goUp: '返回上级',
@@ -185,6 +186,7 @@ const en: typeof zh = {
 	goToFolder: 'Go to folder',
 	goToFolderDesc: 'Select a folder to jump to',
 	noFolders: 'No folders found',
+	openVaultSniffer: 'Analyze vault',
 
 	// View toolbar
 	goUp: 'Go up',

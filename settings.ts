@@ -63,6 +63,7 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
+		setIcon((this as any).navEl, 'layout-grid');
 
 		// ════════════════════════════════
 		// 忽略规则

@@ -30,7 +30,7 @@ export default class VaultSnifferPlugin extends Plugin {
 		);
 
 		// This adds a ribbon icon
-		this.addRibbonIcon('pie-chart', 'Vault Sniffer', () => {
+		this.addRibbonIcon('layout-grid', 'Vault Sniffer', () => {
 			this.activateView();
 		});
 
@@ -41,7 +41,7 @@ export default class VaultSnifferPlugin extends Plugin {
 		// This adds a simple command that can be triggered anywhere
 		this.addCommand({
 			id: 'open-vault-sniffer',
-			name: 'Open vault sniffer',
+			name: t('openVaultSniffer'),
 			callback: () => {
 				this.activateView();
 			},

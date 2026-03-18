@@ -36,6 +36,10 @@ export class VaultSnifferView extends ItemView {
 		return VIEW_TYPE;
 	}
 
+	getIcon() {
+		return 'layout-grid';
+	}
+
 	getDisplayText() {
 		return 'Vault Sniffer';
 	}
