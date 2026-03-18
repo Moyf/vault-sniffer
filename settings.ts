@@ -54,6 +54,7 @@ export const DEFAULT_SETTINGS: VaultSnifferSettings = {
 
 export class VaultSnifferSettingTab extends PluginSettingTab {
 	plugin: VaultSnifferPlugin;
+	icon = 'layout-grid';
 
 	constructor(app: App, plugin: VaultSnifferPlugin) {
 		super(app, plugin);
@@ -63,7 +64,6 @@ export class VaultSnifferSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
-		setIcon((this as any).navEl, 'layout-grid');
 
 		// ════════════════════════════════
 		// 忽略规则
