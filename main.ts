@@ -2,6 +2,7 @@ import { Plugin, WorkspaceLeaf } from 'obsidian';
 import { FileManager } from './fileManager';
 import { VaultSnifferView } from './view';
 import { VaultSnifferSettings, VaultSnifferSettingTab, DEFAULT_SETTINGS } from './settings';
+import { t } from './i18n';
 
 const VIEW_TYPE = 'vault-sniffer-view';
 
@@ -43,6 +44,19 @@ export default class VaultSnifferPlugin extends Plugin {
 			name: 'Open vault sniffer',
 			callback: () => {
 				this.activateView();
+			},
+		});
+
+		this.addCommand({
+			id: 'go-to-folder',
+			name: t('goToFolder'),
+			callback: async () => {
+				await this.activateView();
+				const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE);
+				if (leaves.length > 0) {
+					const view = leaves[0].view as VaultSnifferView;
+					view.openFolderSuggester();
+				}
 			},
 		});
 	}

@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { ItemView, WorkspaceLeaf, TFile } from 'obsidian';
+import { ItemView, WorkspaceLeaf, TFile, TFolder, FuzzySuggestModal } from 'obsidian';
 import * as d3 from 'd3';
 import { FileManager, FileNode } from './fileManager';
 import type { VaultSnifferSettings, DisplayMode, ExtraProperty } from './settings';
@@ -109,6 +109,10 @@ export class VaultSnifferView extends ItemView {
 		const refreshBtn = rightGroup.createEl('button', { cls: 'toolbar-btn', attr: { title: t('refresh') } });
 		refreshBtn.textContent = '🔄';
 		refreshBtn.addEventListener('click', () => this.refresh());
+
+		const goToFolderBtn = rightGroup.createEl('button', { cls: 'toolbar-btn', attr: { title: t('goToFolder') } });
+		goToFolderBtn.textContent = '📂';
+		goToFolderBtn.addEventListener('click', () => this.openFolderSuggester());
 
 		// ── 第二行：深度 | 统计方式 | 显示内容 ──
 		const row2 = toolbar.createDiv('toolbar-row toolbar-row-spread');
@@ -431,40 +435,52 @@ export class VaultSnifferView extends ItemView {
 				.style('pointer-events', 'none');
 			yOffset += lineHeight;
 
-			// 显示属性（按 extraProperties 顺序，含内置字数/体积）
-			for (const prop of extraProps) {
-				if (!prop.showInRect) continue;
-				if (yOffset + 2 > rectHeight || rectWidth < 50) break;
-				let text: string | null = null;
-				if (prop.builtin === 'wordCount') {
-					if (d.data.wordCount != null) text = this.formatWordCount(d.data.wordCount);
-				} else if (prop.builtin === 'fileSize') {
-					text = this.formatSize(d.data.size);
-				} else if (d.data.type === 'file' && d.data.extraProps) {
-					const val = d.data.extraProps[prop.key];
-					if (val) text = this.formatPropValue(val);
+			if (d.data.type === 'folder') {
+				// 文件夹：始终显示文件数和体积
+				if (yOffset + 2 <= rectHeight && rectWidth > 50) {
+					g.append('text')
+						.attr('x', 4).attr('y', yOffset)
+						.text(this.truncateText(`${t('fileCount')(d.data.count)}`, rectWidth - 8))
+						.style('font-size', '10px')
+						.style('fill', fill)
+						.style('opacity', '0.7')
+						.style('pointer-events', 'none');
+					yOffset += lineHeight;
 				}
-				if (text == null) continue;
-				const prefix = prop.label || '';
-				g.append('text')
-					.attr('x', 4).attr('y', yOffset)
-					.text(this.truncateText(prefix + text, rectWidth - 8))
-					.style('font-size', '10px')
-					.style('fill', fill)
-					.style('opacity', '0.7')
-					.style('pointer-events', 'none');
-				yOffset += lineHeight;
-			}
-
-			// 文件数量（仅文件夹）
-			if (yOffset + 2 <= rectHeight && rectWidth > 50 && d.data.type === 'folder') {
-				g.append('text')
-					.attr('x', 4).attr('y', yOffset)
-					.text(`${t('fileCount')(d.data.count)}`)
-					.style('font-size', '10px')
-					.style('fill', fill)
-					.style('opacity', '0.6')
-					.style('pointer-events', 'none');
+				if (yOffset + 2 <= rectHeight && rectWidth > 50) {
+					g.append('text')
+						.attr('x', 4).attr('y', yOffset)
+						.text(this.truncateText(this.formatSize(d.data.size), rectWidth - 8))
+						.style('font-size', '10px')
+						.style('fill', fill)
+						.style('opacity', '0.7')
+						.style('pointer-events', 'none');
+				}
+			} else if (d.data.extension === 'md') {
+				// Markdown 笔记：按 extraProperties 配置显示
+				for (const prop of extraProps) {
+					if (!prop.showInRect) continue;
+					if (yOffset + 2 > rectHeight || rectWidth < 50) break;
+					let text: string | null = null;
+					if (prop.builtin === 'wordCount') {
+						if (d.data.wordCount != null) text = this.formatWordCount(d.data.wordCount);
+					} else if (prop.builtin === 'fileSize') {
+						text = this.formatSize(d.data.size);
+					} else if (d.data.extraProps) {
+						const val = d.data.extraProps[prop.key];
+						if (val) text = this.formatPropValue(val);
+					}
+					if (text == null) continue;
+					const prefix = prop.label || '';
+					g.append('text')
+						.attr('x', 4).attr('y', yOffset)
+						.text(this.truncateText(prefix + text, rectWidth - 8))
+						.style('font-size', '10px')
+						.style('fill', fill)
+						.style('opacity', '0.7')
+						.style('pointer-events', 'none');
+					yOffset += lineHeight;
+				}
 			}
 		});
 
@@ -490,27 +506,41 @@ export class VaultSnifferView extends ItemView {
 					? (d.data.displayName || d.data.name)
 					: d.data.name;
 				const size = this.formatSize(d.data.size);
-				const folderExtra = d.data.type === 'folder' ? `<br/>${t('fileCount')(d.data.count)}` : '';
-				// 统一遍历显示属性（内置字数/体积 + 自定义属性）
-				const infoTokens: string[] = [];
-				let propsHtml = '';
-				for (const prop of extraProps) {
-					if (!prop.showInTooltip) continue;
-					const prefix = prop.label || '';
-					if (prop.builtin === 'wordCount') {
-						if (d.data.wordCount != null) infoTokens.push(prefix + this.formatWordCount(d.data.wordCount));
-					} else if (prop.builtin === 'fileSize') {
-						infoTokens.push(prefix + size);
-					} else if (d.data.type === 'file' && d.data.extraProps) {
-						const val = d.data.extraProps[prop.key];
-						if (val) propsHtml += `<br/><span style="opacity:0.75">${this.escapeHtml(prop.key)}: ${this.escapeHtml(String(val))}</span>`;
+
+				if (d.data.type === 'folder') {
+					// 文件夹：始终显示文件数和体积
+					this.tooltip
+						.html(`${icon} <strong>${this.escapeHtml(tooltipName)}</strong><br/>${size}<br/>${t('fileCount')(d.data.count)}`)
+						.style('left', (event.pageX + 10) + 'px')
+						.style('top', (event.pageY + 10) + 'px');
+				} else if (d.data.extension === 'md') {
+					// Markdown 笔记：按 extraProperties 配置显示
+					const infoTokens: string[] = [];
+					let propsHtml = '';
+					for (const prop of extraProps) {
+						if (!prop.showInTooltip) continue;
+						const prefix = prop.label || '';
+						if (prop.builtin === 'wordCount') {
+							if (d.data.wordCount != null) infoTokens.push(prefix + this.formatWordCount(d.data.wordCount));
+						} else if (prop.builtin === 'fileSize') {
+							infoTokens.push(prefix + size);
+						} else if (d.data.extraProps) {
+							const val = d.data.extraProps[prop.key];
+							if (val) propsHtml += `<br/><span style="opacity:0.75">${this.escapeHtml(prop.key)}: ${this.escapeHtml(String(val))}</span>`;
+						}
 					}
+					const infoLine = infoTokens.join(' · ');
+					this.tooltip
+						.html(`${icon} <strong>${this.escapeHtml(tooltipName)}</strong>${infoLine ? '<br/>' + infoLine : ''}${propsHtml}`)
+						.style('left', (event.pageX + 10) + 'px')
+						.style('top', (event.pageY + 10) + 'px');
+				} else {
+					// 其他文件：只显示名称和体积
+					this.tooltip
+						.html(`${icon} <strong>${this.escapeHtml(tooltipName)}</strong><br/>${size}`)
+						.style('left', (event.pageX + 10) + 'px')
+						.style('top', (event.pageY + 10) + 'px');
 				}
-				const infoLine = infoTokens.join(' · ');
-				this.tooltip
-					.html(`${icon} <strong>${this.escapeHtml(tooltipName)}</strong>${infoLine ? '<br/>' + infoLine : ''}${folderExtra}${propsHtml}`)
-					.style('left', (event.pageX + 10) + 'px')
-					.style('top', (event.pageY + 10) + 'px');
 			})
 			.on('mouseleave', (event: any, d: any) => {
 				this.tooltip.style('display', 'none');
@@ -693,6 +723,13 @@ export class VaultSnifferView extends ItemView {
 		}));
 	}
 
+	openFolderSuggester() {
+		const modal = new FolderSuggestModal(this.app, (folder: TFolder) => {
+			this.navigateTo(folder.path);
+		});
+		modal.open();
+	}
+
 	async onClose() {
 		if (this.resizeObserver) {
 			this.resizeObserver.disconnect();
@@ -706,5 +743,37 @@ export class VaultSnifferView extends ItemView {
 		this.tooltip = null;
 		this.viewContainer = null;
 		this.containerEl.empty();
+	}
+}
+
+class FolderSuggestModal extends FuzzySuggestModal<TFolder> {
+	private onChoose: (folder: TFolder) => void;
+
+	constructor(app: any, onChoose: (folder: TFolder) => void) {
+		super(app);
+		this.onChoose = onChoose;
+		this.setPlaceholder(t('goToFolderDesc'));
+	}
+
+	getItems(): TFolder[] {
+		const folders: TFolder[] = [];
+		const collect = (folder: TFolder) => {
+			for (const child of folder.children) {
+				if (child instanceof TFolder) {
+					folders.push(child);
+					collect(child);
+				}
+			}
+		};
+		collect(this.app.vault.getRoot());
+		return folders;
+	}
+
+	getItemText(folder: TFolder): string {
+		return folder.path;
+	}
+
+	onChooseItem(folder: TFolder): void {
+		this.onChoose(folder);
 	}
 }

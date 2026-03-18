@@ -22,8 +22,8 @@ const zh = {
 	titlePropertyDesc: '读取 frontmatter 中的此属性作为显示名称，未设置时回退到文件名。留空则始终使用文件名。',
 	useTitleInTooltip: '浮动提示使用显示名称',
 	useTitleInTooltipDesc: '开启后，tooltip 中使用 title 属性作为名称；关闭则始终显示文件原名。',
-	displayProperties: '显示属性',
-	displayPropertiesDesc: '在矩形和浮动提示中显示的属性。内置属性不可删除，自定义属性读取文件的 frontmatter。',
+	displayProperties: '笔记属性显示',
+	displayPropertiesDesc: '仅对 Markdown 笔记生效。在矩形和浮动提示中显示的属性。内置属性不可删除，自定义属性读取 frontmatter。文件夹始终显示文件数和体积。',
 	addProperty: '+ 添加属性',
 	colProperty: '属性',
 	colPrefix: '显示前缀',
@@ -49,6 +49,10 @@ const zh = {
 	openInTab: '新标签页',
 	openInSplit: '分屏',
 	openInWindow: '新窗口',
+
+	goToFolder: '跳转文件夹',
+	goToFolderDesc: '选择一个文件夹，快速跳转到该位置',
+	noFolders: '没有找到文件夹',
 
 	// 视图工具栏
 	goUp: '返回上级',
@@ -97,8 +101,8 @@ const en: typeof zh = {
 	titlePropertyDesc: 'Read this frontmatter property as the display name. Falls back to filename if not set. Leave empty to always use the filename.',
 	useTitleInTooltip: 'Use Title in Tooltip',
 	useTitleInTooltipDesc: 'When enabled, the tooltip uses the title property as the name; otherwise always shows the raw filename.',
-	displayProperties: 'Display Properties',
-	displayPropertiesDesc: 'Properties shown on rects and tooltips. Built-in properties cannot be deleted; custom ones read from frontmatter.',
+	displayProperties: 'Note Properties',
+	displayPropertiesDesc: 'Only applies to Markdown notes. Properties shown on rects and tooltips. Built-in properties cannot be deleted; custom ones read from frontmatter. Folders always show file count and size.',
 	addProperty: '+ Add Property',
 	colProperty: 'Property',
 	colPrefix: 'Prefix',
@@ -124,6 +128,10 @@ const en: typeof zh = {
 	openInTab: 'New tab',
 	openInSplit: 'Split',
 	openInWindow: 'New window',
+
+	goToFolder: 'Go to folder',
+	goToFolderDesc: 'Select a folder to jump to',
+	noFolders: 'No folders found',
 
 	// View toolbar
 	goUp: 'Go up',
